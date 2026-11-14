@@ -298,6 +298,26 @@ test("two tabs cannot overwrite content; stale edits remain visible for recovery
   ).toBeVisible();
   await other.close();
 });
+test("a separate account gets its own private vocabulary", async ({
+  page,
+  browser,
+}) => {
+  await translate(page);
+  await page.getByRole("button", { name: "Add to my list" }).click();
+  await expect(page.locator(".saved-row [role=status]")).toHaveText("Saved");
+  const secondContext = await browser.newContext();
+  const secondPage = await secondContext.newPage();
+  await secondPage.goto("/login");
+  await secondPage.getByLabel("Username").fill("second");
+  await secondPage.getByLabel("Password").fill("isolated-password-1234");
+  await secondPage.getByRole("button", { name: "Sign in" }).click();
+  await expect(secondPage).toHaveURL("/");
+  expect(
+    (await (await secondPage.request.get("/api/cards")).json()).total,
+  ).toBe(0);
+  await secondContext.close();
+});
+
 test("a separate browser sign-in sees saved vocabulary and logout protects it", async ({
   page,
   browser,

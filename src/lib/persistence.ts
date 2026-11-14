@@ -13,6 +13,21 @@ export async function createOwner(
   username: string,
   password: string,
 ) {
+  return provisionAccount(db, username, password, true);
+}
+export async function createAccount(
+  db: Pool,
+  username: string,
+  password: string,
+) {
+  return provisionAccount(db, username, password, false);
+}
+async function provisionAccount(
+  db: Pool,
+  username: string,
+  password: string,
+  requireEmptyDatabase: boolean,
+) {
   if (!/^[a-z0-9_]{3,30}$/.test(username))
     throw new Error(
       "Use a lowercase username of 3-30 letters, numbers or underscores.",
@@ -24,9 +39,17 @@ export async function createOwner(
   try {
     await client.query("BEGIN");
     await client.query('LOCK TABLE "user" IN EXCLUSIVE MODE');
-    const existing = await client.query('SELECT id FROM "user" LIMIT 1');
-    if (existing.rowCount)
-      throw new Error("An owner already exists. No account was changed.");
+    if (requireEmptyDatabase) {
+      const existing = await client.query('SELECT id FROM "user" LIMIT 1');
+      if (existing.rowCount)
+        throw new Error("An owner already exists. No account was changed.");
+    }
+    const duplicate = await client.query(
+      'SELECT id FROM "user" WHERE lower(username)=$1',
+      [username],
+    );
+    if (duplicate.rowCount)
+      throw new Error("This username already exists. No account was changed.");
     const id = crypto.randomUUID();
     await client.query(
       'INSERT INTO "user" (id, name, email, "emailVerified", "createdAt", "updatedAt", username, "displayUsername") VALUES ($1,$2,$3,true,now(),now(),$2,$2)',

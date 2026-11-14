@@ -53,7 +53,11 @@ export function getAuth() {
 }
 export async function ownerSession(headers: Headers) {
   const session = await getAuth().api.getSession({ headers });
-  if (!session || session.user.username !== getConfig().OWNER_USERNAME)
-    return null;
-  return session;
+  if (!session) return null;
+  // Only locally provisioned accounts have an application workspace.
+  const provisioned = await getDb().query(
+    "SELECT 1 FROM owner_preferences WHERE owner_id=$1",
+    [session.user.id],
+  );
+  return provisioned.rowCount ? session : null;
 }

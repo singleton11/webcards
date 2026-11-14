@@ -13,9 +13,9 @@ Webcards publishes a web app manifest, including install icons and standalone di
 
 ## Phase 1
 
-- Responsive, owner-only translator with both Russian-to-English and English-to-Russian directions, optional context, ambiguity questions, explicit-submit behavior, and retained input on errors.
-- Maintained Better Auth username/password login; public signup is disabled. Owner creation is a one-time local CLI operation. Passwords are hashed with Better Auth's password implementation; sessions are stored in PostgreSQL.
-- PostgreSQL-backed preferences (daily goal defaults to 12) and atomic per-owner/day translation-request limits. Better Auth schema updates and versioned, checksum-verified application migrations are separate.
+- Responsive private-workspace translator with separate credentials, vocabulary, and review progress for each locally provisioned account. Russian-to-English and English-to-Russian directions, optional context, ambiguity questions, explicit-submit behavior, and retained input on errors.
+- Maintained Better Auth username/password login; public signup is disabled. Accounts are provisioned only through a trusted local CLI operation. Passwords are hashed with Better Auth's password implementation; sessions are stored in PostgreSQL.
+- PostgreSQL-backed per-account preferences (daily goal defaults to 12) and atomic per-account/day translation-request limits. Better Auth schema updates and versioned, checksum-verified application migrations are separate.
 - Server-only LiteLLM Responses adapter pinned to `chatgpt-gpt-6-luna`, with strict request/result validation, no provider-side response storage, a bounded SSE parser, one bounded retry, a 20-second overall deadline, and a two-request concurrency limit.
 - Translation alone never creates a card or permanent translation history. A bounded in-process, 60-second translation request-ID replay window prevents retries from calling the model twice while the single local process is running.
 - **Today** shows distinct cards reviewed against the daily goal, due cards and directions, and the local-day/timezone. There are no reminders or offline inference.
@@ -56,7 +56,7 @@ No production host, public signup, reverse proxy, Docker deployment, production 
 2. Copy `.env.example` to `.env.local`, make the copy owner-only (`chmod 600 .env.local`), and fill in `DATABASE_URL`, `BETTER_AUTH_URL=http://127.0.0.1:3000`, an unpredictable random `BETTER_AUTH_SECRET` of at least 32 characters, and a lowercase `OWNER_USERNAME`. Keep this file out of version control.
 3. Install pinned dependencies: `npm ci`.
 4. Apply the Better Auth and application migrations: `npm run db:migrate`.
-5. Create the only owner. Type the password without echoing it to the terminal or putting it in command history:
+5. Create the initial owner. Type the password without echoing it to the terminal or putting it in command history:
 
    ```bash
    read -r -s -p 'Choose an owner password (12-128 characters): ' WEBCARDS_PASSWORD
@@ -65,8 +65,17 @@ No production host, public signup, reverse proxy, Docker deployment, production 
    unset WEBCARDS_PASSWORD
    ```
 
-6. Set `LITELLM_BASE_URL=http://127.0.0.1:4000/v1`, `LITELLM_MODEL=chatgpt-gpt-6-luna`, and the dedicated `LITELLM_API_KEY` in `.env.local`.
-7. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`.
+6. To provision another separate private account locally, pass its lowercase username as an argument and its password via stdin. Public registration remains disabled; each account receives its own empty vocabulary, review progress, quota, and preferences:
+
+   ```sh
+   read -r -s -p 'Choose an account password (12-128 characters): ' WEBCARDS_PASSWORD
+   printf '\n'
+   printf '%s\n' "$WEBCARDS_PASSWORD" | npm run account:create -- wife
+   unset WEBCARDS_PASSWORD
+   ```
+
+7. Set `LITELLM_BASE_URL=http://127.0.0.1:4000/v1`, `LITELLM_MODEL=chatgpt-gpt-6-luna`, and the dedicated `LITELLM_API_KEY` in `.env.local`.
+8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`.
 
 Database creation and the application credential are intentionally operator-managed; the project does not silently alter the shared PostgreSQL or LiteLLM service. `scripts/model-smoke.ts` runs one generic phrase in each direction when explicitly invoked via `npm run model:smoke`. This incurs real model requests; no quality benchmark or permitted-use/privacy review is implied.
 

@@ -12,6 +12,7 @@
     "test:browser": "playwright test",
     "db:migrate": "tsx --env-file=.env.local scripts/migrate.ts",
     "owner:create": "tsx --env-file=.env.local scripts/create-owner.ts",
+    "account:create": "tsx --env-file=.env.local scripts/create-account.ts",
     "model:smoke": "tsx --env-file=.env.local scripts/model-smoke.ts"
   },
   "dependencies": {

@@ -1,10 +1,10 @@
 # Personal deployment
 
-Webcards is designed for a single owner behind an HTTPS reverse proxy such as Caddy. Keep the Next.js listener private at `127.0.0.1:3001` and PostgreSQL on loopback, using a dedicated database and role. Public source code does not enable public signup or turn this app into a multi-user service.
+Webcards is designed for a small number of locally provisioned accounts behind an HTTPS reverse proxy such as Caddy. Each account has a private workspace, vocabulary, review progress, quotas, and preferences. Keep the Next.js listener private at `127.0.0.1:3001` and PostgreSQL on loopback, using a dedicated database and role. Public source code does not enable public signup.
 
 ## Configuration
 
-Follow the README's database, model-credential, migration, and owner-creation steps. Set `BETTER_AUTH_URL` to your actual HTTPS origin before deployment. Keep `.env.local` and any sign-in notes outside version control, with mode 0600. Never put a database password, auth secret, model key, or owner password into the service template or documentation.
+Follow the README's database, model-credential, migration, and initial-owner creation steps. To add a separate account, use `npm run account:create -- <username>` with its password piped via stdin; run only from the trusted host. No account-creation endpoint is exposed to the browser or the public network. Set `BETTER_AUTH_URL` to your actual HTTPS origin before deployment. Keep `.env.local` and any sign-in notes outside version control, with mode 0600. Never put a database password, auth secret, model key, or owner password into the service template or documentation.
 
 `infra/webcards.service` is an example systemd user unit. Replace `/srv/webcards` with the absolute path to your checkout and verify the Node.js binary path before installing a copy at `~/.config/systemd/user/webcards.service`. The template uses UTC, matching the app's default review-day timezone. A timezone settings UI is not configured.
 
@@ -32,4 +32,4 @@ For an application update, validate an isolated checkout first. Automated test s
 
 The installable app uses a manifest and home-screen icons, without a service worker or offline data cache. Open the HTTPS site in a supported browser and use its install or Add to Home Screen menu; see the README for platform-specific instructions. The installed app loads updates when it is reloaded or reopened, and still needs a connection for sign-in, translations, vocabulary, and reviews.
 
-This setup does not add backup/restore automation, account export/deletion, offline model access, multi-instance support, or a provider privacy/terms review. Review upstream handling before entering sensitive text.
+This setup does not add backup/restore automation, account export/deletion, offline model access, cross-account sharing, multi-instance support, or a provider privacy/terms review. Review upstream handling before entering sensitive text.
