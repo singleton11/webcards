@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#183e34"/>
+  <path d="M130 124h181c42 0 71 29 71 71v193H130z" fill="none" stroke="#d8f278" stroke-opacity=".25" stroke-width="3"/>
+  <text x="126" y="326" fill="#d8f278" font-family="Georgia, 'DejaVu Serif', serif" font-size="252" letter-spacing="-14">w.</text>
+</svg>

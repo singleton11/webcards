@@ -1,0 +1,24 @@
+[Unit]
+Description=Webcards private translator and daily reviews
+After=network.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Replace /srv/webcards with the absolute path to your checkout before installing.
+WorkingDirectory=/srv/webcards
+Environment=NODE_ENV=production
+Environment=TZ=UTC
+Environment=NEXT_TELEMETRY_DISABLED=1
+EnvironmentFile=/srv/webcards/.env.local
+ExecStart=/usr/bin/node /srv/webcards/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target
