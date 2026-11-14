@@ -16,6 +16,7 @@ async function translate(
   context = "morning at home",
 ) {
   await page.goto("/");
+  await page.getByLabel("Source language").selectOption("ru");
   await page.getByLabel("Text to translate").fill(text);
   await page.getByLabel("A little context").fill(context);
   await page.getByRole("button", { name: "Translate", exact: true }).click();

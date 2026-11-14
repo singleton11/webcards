@@ -34,14 +34,17 @@ for (const viewport of [
           exact: false,
         }),
       ).toBeVisible();
+      await expect(page.getByLabel("Source language")).toHaveValue("en");
+      await expect(page.locator(".target-language")).toHaveText("Russian");
       const source = page.getByLabel("Text to translate");
-      await source.fill("Доброе утро");
-      await expect(page.locator("#character-count")).toHaveText("11 / 500");
+      await expect(source).toHaveAttribute("lang", "en");
+      await source.fill("good morning");
+      await expect(page.locator("#character-count")).toHaveText("12 / 500");
       await page
         .getByRole("button", { name: "Translate", exact: true })
         .click();
       await expect(
-        page.getByRole("heading", { name: "good morning" }),
+        page.getByRole("heading", { name: "доброе утро" }),
       ).toBeVisible();
       await expect(
         page.getByText("Only the meaning you choose is saved.", {
@@ -49,12 +52,14 @@ for (const viewport of [
         }),
       ).toBeVisible();
       await page.getByRole("button", { name: "Swap languages" }).click();
-      await expect(source).toHaveValue("good morning");
+      await expect(page.getByLabel("Source language")).toHaveValue("ru");
+      await expect(page.locator(".target-language")).toHaveText("English");
+      await expect(source).toHaveValue("доброе утро");
       await page
         .getByRole("button", { name: "Translate", exact: true })
         .click();
       await expect(
-        page.getByRole("heading", { name: "доброе утро" }),
+        page.getByRole("heading", { name: "good morning" }),
       ).toBeVisible();
       await page.screenshot({
         path: "test-results/translator-" + viewport.width + ".png",
@@ -106,6 +111,7 @@ test("preserves input and request identity across a failed connection", async ({
     if (ids.length === 1) await route.abort("failed");
     else await route.continue();
   });
+  await page.getByLabel("Source language").selectOption("ru");
   const text = page.getByLabel("Text to translate");
   await text.fill("Привет");
   await expect(page.locator("#character-count")).toHaveText("6 / 500");

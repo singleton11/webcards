@@ -87,6 +87,7 @@ for (const viewport of [
       page,
     }) => {
       await page.goto("/");
+      await page.getByLabel("Source language").selectOption("ru");
       await page.getByLabel("Text to translate").fill("доброе утро");
       await page.getByLabel("A little context").fill("morning at home");
       await page

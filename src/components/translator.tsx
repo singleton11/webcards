@@ -7,7 +7,7 @@ class TranslationFailure extends Error {}
 export function Translator() {
   const [ready, setReady] = useState(false);
   useEffect(() => setReady(true), []);
-  const [source, setSource] = useState<"ru" | "en">("ru");
+  const [source, setSource] = useState<"ru" | "en">("en");
   const target = source === "ru" ? "en" : "ru";
   const [text, setText] = useState("");
   const [context, setContext] = useState("");
