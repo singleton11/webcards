@@ -24,7 +24,6 @@ export function DailyReview() {
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [clock, setClock] = useState(() => Date.now());
   const load = useCallback(async () => {
     try {
       setToday(await request());
@@ -35,8 +34,6 @@ export function DailyReview() {
   }, []);
   useEffect(() => {
     void load();
-    const timer = window.setInterval(() => setClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
   }, [load]);
   const current = today?.session?.item;
   useEffect(() => {
@@ -58,7 +55,6 @@ export function DailyReview() {
       setBusy(false);
     }
   }
-  const waiting = current && Date.parse(current.availableAt) > clock;
   const defaultAction =
     current?.grade?.verdict === "correct" ||
     current?.grade?.verdict === "incorrect" ||
@@ -101,10 +97,7 @@ export function DailyReview() {
           <section className="review-stats" aria-label="Today's progress">
             <div>
               <span>Today</span>
-              <strong>
-                {today.completed}
-                <small> / {today.goal}</small>
-              </strong>
+              <strong>{today.completed}</strong>
               <p>distinct cards reviewed</p>
             </div>
             <div>
@@ -113,18 +106,15 @@ export function DailyReview() {
               <p>due cards / {today.dueDirections} directions</p>
             </div>
             <div>
-              <span>New today</span>
-              <strong>
-                {today.newRemaining}
-                <small> / 5</small>
-              </strong>
-              <p>new cards available</p>
+              <span>Your pace</span>
+              <strong>No limit</strong>
+              <p>one appearance per card each day</p>
             </div>
           </section>
           <p className="review-caption">
             Day: {today.day} ({today.timezone}) - {today.attempts}{" "}
-            {today.attempts === 1 ? "attempt" : "attempts"}. Both directions
-            count as one card toward your goal.
+            {today.attempts === 1 ? "answer" : "answers"}. Answered cards rest
+            in both directions until at least tomorrow.
           </p>
           {!current ? (
             <section className="review-empty">
@@ -132,12 +122,12 @@ export function DailyReview() {
               <h2>
                 {today.dueCards
                   ? "Ready when you are."
-                  : "Nothing due right now."}
+                  : "You're all caught up."}
               </h2>
               <p>
                 {today.dueCards
-                  ? "Due reviews come first. A session introduces up to five new cards a day, with one direction per card."
-                  : "Your saved words will be here when it is time to review them."}
+                  ? "Keep going through all available cards, one at a time. No daily limit."
+                  : "Missed cards return tomorrow. Correct answers return when spaced repetition makes them due."}
               </p>
               {today.dueCards > 0 && (
                 <button
@@ -151,12 +141,6 @@ export function DailyReview() {
               <Link className="secondary-button review-link" href="/">
                 Translate something
               </Link>
-              {today.dueCards > 0 && today.newRemaining === 0 && (
-                <p>
-                  New cards wait until the due backlog is clear and today's
-                  limit allows them.
-                </p>
-              )}
             </section>
           ) : (
             <section className="review-sheet" aria-label="Review question">
@@ -166,7 +150,7 @@ export function DailyReview() {
                     ? "RUSSIAN TO ENGLISH"
                     : "ENGLISH TO RUSSIAN"}
                 </span>
-                <span>{today.session?.remaining} left in session</span>
+                <span>{today.session?.remaining} cards left</span>
               </div>
               <h2 lang={current.direction === "ru-en" ? "ru" : "en"}>
                 {current.prompt}
@@ -181,171 +165,153 @@ export function DailyReview() {
                   </>
                 )}
               </div>
-              {waiting ? (
-                <div role="status" className="review-wait">
-                  <strong>A little breathing room.</strong>
-                  <p>
-                    This relearning step is due at{" "}
-                    {new Date(current.availableAt).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                    . Leave and return later; your session is saved.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {!current.grade && (
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        void act({
-                          action: "check",
-                          itemId: current.id,
-                          answer,
-                        });
-                      }}
+              {!current.grade && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void act({
+                      action: "check",
+                      itemId: current.id,
+                      answer,
+                    });
+                  }}
+                >
+                  <label htmlFor="review-answer">Your translation</label>
+                  <textarea
+                    id="review-answer"
+                    lang={current.direction === "ru-en" ? "en" : "ru"}
+                    maxLength={1000}
+                    value={answer}
+                    disabled={busy}
+                    required
+                    onChange={(e) => setAnswer(e.target.value)}
+                  />
+                  <div className="review-actions">
+                    <button
+                      className="primary-button"
+                      disabled={busy || !answer.trim()}
                     >
-                      <label htmlFor="review-answer">Your translation</label>
-                      <textarea
-                        id="review-answer"
-                        lang={current.direction === "ru-en" ? "en" : "ru"}
-                        maxLength={1000}
-                        value={answer}
+                      {busy ? "Checking..." : "Check answer"}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act({ action: "reveal", itemId: current.id })
+                      }
+                    >
+                      Show answer
+                    </button>
+                    <button
+                      type="button"
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act({
+                          action: "finalize",
+                          itemId: current.id,
+                          decision: "skip",
+                        })
+                      }
+                    >
+                      Skip without rating
+                    </button>
+                  </div>
+                  <p className="review-privacy">
+                    Non-exact answers and this card's context are sent to the
+                    configured LiteLLM provider for checking. Provider retention
+                    remains unverified.
+                  </p>
+                </form>
+              )}
+              {current.grade && (
+                <div className="review-feedback" aria-live="polite">
+                  <span className="eyebrow">
+                    {current.grade.source === "reveal"
+                      ? "ANSWER REVEALED"
+                      : current.grade.verdict.replace("_", " ").toUpperCase()}
+                  </span>
+                  <h3>Saved answer</h3>
+                  <p
+                    className="review-reference"
+                    lang={current.direction === "ru-en" ? "en" : "ru"}
+                  >
+                    {current.reference}
+                  </p>
+                  {current.answer && (
+                    <p>
+                      Your answer: <strong>{current.answer}</strong>
+                    </p>
+                  )}
+                  <p>{current.grade.reason}</p>
+                  {current.grade.correction && (
+                    <p>Suggested correction: {current.grade.correction}</p>
+                  )}
+                  {(current.grade.verdict === "typo" ||
+                    current.grade.verdict === "needs_review") && (
+                    <p>
+                      This needs your judgment; it will not update the schedule
+                      automatically.
+                    </p>
+                  )}
+                  <div className="review-actions">
+                    {defaultAction && (
+                      <button
+                        className="primary-button"
                         disabled={busy}
-                        required
-                        onChange={(e) => setAnswer(e.target.value)}
-                      />
-                      <div className="review-actions">
-                        <button
-                          className="primary-button"
-                          disabled={busy || !answer.trim()}
-                        >
-                          {busy ? "Checking..." : "Check answer"}
-                        </button>
-                        <button
-                          type="button"
-                          className="secondary-button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act({ action: "reveal", itemId: current.id })
-                          }
-                        >
-                          Show answer
-                        </button>
-                        <button
-                          type="button"
-                          className="text-button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act({
-                              action: "finalize",
-                              itemId: current.id,
-                              decision: "skip",
-                            })
-                          }
-                        >
-                          Skip without rating
-                        </button>
-                      </div>
-                      <p className="review-privacy">
-                        Non-exact answers and this card's context are sent to
-                        the configured LiteLLM provider for checking. Provider
-                        retention remains unverified.
-                      </p>
-                    </form>
-                  )}
-                  {current.grade && (
-                    <div className="review-feedback" aria-live="polite">
-                      <span className="eyebrow">
-                        {current.grade.source === "reveal"
-                          ? "ANSWER REVEALED"
-                          : current.grade.verdict
-                              .replace("_", " ")
-                              .toUpperCase()}
-                      </span>
-                      <h3>Saved answer</h3>
-                      <p
-                        className="review-reference"
-                        lang={current.direction === "ru-en" ? "en" : "ru"}
+                        onClick={() =>
+                          void act({
+                            action: "finalize",
+                            itemId: current.id,
+                            decision: "accept",
+                          })
+                        }
                       >
-                        {current.reference}
-                      </p>
-                      {current.answer && (
-                        <p>
-                          Your answer: <strong>{current.answer}</strong>
-                        </p>
-                      )}
-                      <p>{current.grade.reason}</p>
-                      {current.grade.correction && (
-                        <p>Suggested correction: {current.grade.correction}</p>
-                      )}
-                      {(current.grade.verdict === "typo" ||
-                        current.grade.verdict === "needs_review") && (
-                        <p>
-                          This needs your judgment; it will not update the
-                          schedule automatically.
-                        </p>
-                      )}
-                      <div className="review-actions">
-                        {defaultAction && (
-                          <button
-                            className="primary-button"
-                            disabled={busy}
-                            onClick={() =>
-                              void act({
-                                action: "finalize",
-                                itemId: current.id,
-                                decision: "accept",
-                              })
-                            }
-                          >
-                            Continue with result
-                          </button>
-                        )}
-                        <button
-                          className="secondary-button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act({
-                              action: "finalize",
-                              itemId: current.id,
-                              decision: "good",
-                            })
-                          }
-                        >
-                          I recalled it
-                        </button>
-                        <button
-                          className="secondary-button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act({
-                              action: "finalize",
-                              itemId: current.id,
-                              decision: "again",
-                            })
-                          }
-                        >
-                          Practice again
-                        </button>
-                        <button
-                          className="text-button"
-                          disabled={busy}
-                          onClick={() =>
-                            void act({
-                              action: "finalize",
-                              itemId: current.id,
-                              decision: "skip",
-                            })
-                          }
-                        >
-                          Skip without rating
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                        Continue with result
+                      </button>
+                    )}
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act({
+                          action: "finalize",
+                          itemId: current.id,
+                          decision: "good",
+                        })
+                      }
+                    >
+                      I recalled it
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act({
+                          action: "finalize",
+                          itemId: current.id,
+                          decision: "again",
+                        })
+                      }
+                    >
+                      Review tomorrow
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={busy}
+                      onClick={() =>
+                        void act({
+                          action: "finalize",
+                          itemId: current.id,
+                          decision: "skip",
+                        })
+                      }
+                    >
+                      Skip without rating
+                    </button>
+                  </div>
+                </div>
               )}
               <button
                 className="text-button review-end"

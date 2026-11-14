@@ -34,7 +34,7 @@ test.beforeEach(async ({ context, page }) => {
     }
   }
 });
-async function seed(page: Page) {
+async function seed(page: Page, index = 0) {
   const response = await page.request.post("/api/cards", {
     headers: { origin },
     data: {
@@ -43,8 +43,8 @@ async function seed(page: Page) {
       model: "chatgpt-gpt-6-luna",
       promptVersion: "translate-v1",
       content: {
-        russian: "берег",
-        english: "bank",
+        russian: index ? "берег " + index : "берег",
+        english: index ? "bank " + index : "bank",
         sense: "river edge",
         context: "by the river",
         note: "",
@@ -83,7 +83,7 @@ for (const viewport of [
 ]) {
   test.describe(viewport.width + "px review", () => {
     test.use({ viewport });
-    test("translate, save, review both directions, and resume a relearning session", async ({
+    test("translate, save, resume feedback, and retire an answered card for today", async ({
       page,
     }) => {
       await page.goto("/");
@@ -113,49 +113,112 @@ for (const viewport of [
         path: "test-results/review-feedback-" + viewport.width + ".png",
         fullPage: true,
       });
+      await page.reload();
+      await expect(
+        page.getByRole("heading", { name: "Saved answer" }),
+      ).toBeVisible();
+      expect(
+        (await (await page.request.get("/api/reviews")).json()).session.item.id,
+      ).toBe(first.id);
       await page.getByRole("button", { name: "Continue with result" }).click();
-      await expect(page.getByText("A little breathing room.")).toBeVisible();
-      let today = await (await page.request.get("/api/reviews")).json();
+      await expect(
+        page.getByRole("heading", { name: "You're all caught up." }),
+      ).toBeVisible();
+      const today = await (await page.request.get("/api/reviews")).json();
       expect(today).toMatchObject({
         completed: 1,
         attempts: 1,
-        dueCards: 1,
-        dueDirections: 1,
-      });
-      const sessionId = today.session.id;
-      await page.reload();
-      await expect(page.getByText("A little breathing room.")).toBeVisible();
-      expect(
-        (await (await page.request.get("/api/reviews")).json()).session.id,
-      ).toBe(sessionId);
-      await page
-        .getByRole("button", {
-          name: "End session without rating remaining questions",
-        })
-        .click();
-      const second = await start(page);
-      expect(second.direction).not.toBe(first.direction);
-      await checkExact(page, card);
-      await page.getByRole("button", { name: "Continue with result" }).click();
-      await expect(page.getByText("A little breathing room.")).toBeVisible();
-      today = await (await page.request.get("/api/reviews")).json();
-      expect(today).toMatchObject({
-        completed: 1,
-        attempts: 2,
+        dueCards: 0,
         dueDirections: 0,
+        session: null,
       });
+      await page.reload();
+      await expect(
+        page.getByRole("heading", { name: "You're all caught up." }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Start review" }),
+      ).toHaveCount(0);
+      expect(
+        (
+          await (
+            await page.request.post("/api/reviews", {
+              headers: { origin },
+              data: { action: "start" },
+            })
+          ).json()
+        ).session,
+      ).toBeNull();
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
         ),
       ).toBe(true);
       await page.screenshot({
-        path: "test-results/review-wait-" + viewport.width + ".png",
+        path: "test-results/review-done-" + viewport.width + ".png",
         fullPage: true,
       });
     });
   });
 }
+test("keeps offering eligible cards beyond the former daily goal and new-card cap", async ({
+  page,
+}) => {
+  const cards = new Map();
+  for (let i = 0; i < 14; i++) {
+    const card = await seed(page, i);
+    cards.set(card.id, card);
+  }
+  await start(page);
+  const seen = new Set();
+  for (let i = 0; i < 14; i++) {
+    const today = await (await page.request.get("/api/reviews")).json();
+    const id = today.session.item.cardId;
+    expect(seen.has(id)).toBe(false);
+    seen.add(id);
+    if (i % 2) {
+      await page.getByRole("button", { name: "Show answer" }).click();
+      await page.getByRole("button", { name: "Review tomorrow" }).click();
+    } else {
+      await checkExact(page, cards.get(id));
+      await page.getByRole("button", { name: "Continue with result" }).click();
+    }
+    if (i < 13) await expect(page.getByLabel("Your translation")).toBeVisible();
+  }
+  await expect(
+    page.getByRole("heading", { name: "You're all caught up." }),
+  ).toBeVisible();
+  expect(await (await page.request.get("/api/reviews")).json()).toMatchObject({
+    completed: 14,
+    attempts: 14,
+    dueCards: 0,
+    session: null,
+  });
+});
+test("a missed card finishes for today with no same-day repeat", async ({
+  page,
+}) => {
+  await seed(page);
+  await start(page);
+  await page.getByRole("button", { name: "Show answer" }).click();
+  await page.getByRole("button", { name: "Review tomorrow" }).click();
+  await expect(
+    page.getByRole("heading", { name: "You're all caught up." }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Missed cards return tomorrow.", { exact: false }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Start review" })).toHaveCount(
+    0,
+  );
+  expect(await (await page.request.get("/api/reviews")).json()).toMatchObject({
+    completed: 1,
+    attempts: 1,
+    dueCards: 0,
+    session: null,
+  });
+});
 test("uncertain judgments and harmless typos require a recorded self-assessment", async ({
   page,
 }) => {
@@ -175,7 +238,9 @@ test("uncertain judgments and harmless typos require a recorded self-assessment"
     0,
   );
   await page.getByRole("button", { name: "I recalled it" }).click();
-  await expect(page.getByText("A little breathing room.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "You're all caught up." }),
+  ).toBeVisible();
   expect((await (await page.request.get("/api/reviews")).json()).attempts).toBe(
     1,
   );
@@ -203,7 +268,9 @@ test("an interrupted finalization retries the same attempt without double-counti
     page.locator(".review-page .error-banner[role=alert]"),
   ).toBeVisible();
   await page.getByRole("button", { name: "Continue with result" }).click();
-  await expect(page.getByText("A little breathing room.")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "You're all caught up." }),
+  ).toBeVisible();
   expect((await (await page.request.get("/api/reviews")).json()).attempts).toBe(
     1,
   );

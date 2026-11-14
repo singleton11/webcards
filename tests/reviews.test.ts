@@ -132,12 +132,10 @@ describe("daily reviews", () => {
     await migrate(getDb());
     const today = await getToday(getDb(), owner, now);
     expect(today).toMatchObject({
-      goal: 12,
       completed: 0,
       attempts: 0,
       dueCards: 1,
       dueDirections: 2,
-      newRemaining: 5,
       session: null,
     });
     expect(
@@ -148,8 +146,8 @@ describe("daily reviews", () => {
       ).rows[0].current_version,
     ).toBe(1);
   });
-  it("freezes and resumes one direction per card with at most five new cards", async () => {
-    for (let i = 0; i < 8; i++) await save(i);
+  it("freezes and resumes all eligible cards beyond the old daily, session and scan limits", async () => {
+    for (let i = 0; i < 205; i++) await save(i);
     const first = await startReview(getDb(), owner, now);
     const resumed = await startReview(
       getDb(),
@@ -162,11 +160,39 @@ describe("daily reviews", () => {
         "SELECT card_id,direction FROM review_items ORDER BY position",
       )
     ).rows;
-    expect(items).toHaveLength(5);
-    expect(new Set(items.map((i) => i.card_id)).size).toBe(5);
-    expect(first.newRemaining).toBe(0);
+    expect(items).toHaveLength(205);
+    expect(new Set(items.map((i) => i.card_id)).size).toBe(205);
     expect(first.session?.item?.reference).toBeNull();
     expect(resumed.session?.item?.id).toBe(first.session?.item?.id);
+  });
+  it("drains every eligible card once, regardless of result, including cards saved after finishing", async () => {
+    for (let i = 0; i < 14; i++) await save(i);
+    let today = await startReview(getDb(), owner, now);
+    const seen = new Set<string>();
+    while (today.session?.item) {
+      const item = today.session.item;
+      expect(seen.has(item.cardId)).toBe(false);
+      seen.add(item.cardId);
+      if (seen.size % 2) {
+        await prepareAnswer(getDb(), owner, item.id, reference(item), now);
+        await finalizeReview(getDb(), owner, item.id, "accept", now);
+      } else {
+        await revealAnswer(getDb(), owner, item.id, now);
+        await finalizeReview(getDb(), owner, item.id, "again", now);
+      }
+      today = await getToday(getDb(), owner, now);
+    }
+    expect(seen.size).toBe(14);
+    expect(await startReview(getDb(), owner, now)).toMatchObject({
+      completed: 14,
+      attempts: 14,
+      dueCards: 0,
+      session: null,
+    });
+    const added = await save(14);
+    expect((await startReview(getDb(), owner, now)).session?.item?.cardId).toBe(
+      added.cardId,
+    );
   });
   it("checks exact answers without grading or changing either schedule; finalizes only one direction", async () => {
     const saved = await save();
@@ -198,7 +224,7 @@ describe("daily reviews", () => {
       direction: item.direction,
       rating: "good",
       source: "automatic",
-      scheduler_version: "ts-fsrs-5.2.0/fsrs-6/webcards-v1",
+      scheduler_version: "ts-fsrs-5.2.0/fsrs-6/webcards-v2",
     });
   });
   it("replays finalization durably across concurrent tabs and rejects a different decision", async () => {
@@ -217,36 +243,111 @@ describe("daily reviews", () => {
     ).rejects.toMatchObject({ code: "decision_conflict" });
     const later = await getToday(getDb(), owner, now);
     expect(later).toMatchObject({ completed: 1, attempts: 1 });
-    expect(later.session?.remaining).toBe(1);
-    expect(Date.parse(later.session!.item!.availableAt) - now.getTime()).toBe(
-      60000,
-    );
+    expect(later.session).toBeNull();
+    expect(later.dueCards).toBe(0);
+    expect(result[0].dueAt).toBe("2030-01-02T00:00:00.000Z");
   });
-  it("records relearning repeats and both directions without inflating the distinct-card goal", async () => {
+  it("retries a wrong direction tomorrow, never either direction again today", async () => {
     await save();
-    let { item } = await session();
+    const { item } = await session();
     await revealAnswer(getDb(), owner, item.id, now);
     await finalizeReview(getDb(), owner, item.id, "again", now);
-    let today = await getToday(getDb(), owner, now);
-    const repeat = today.session!.item!;
-    await expect(
-      prepareAnswer(getDb(), owner, repeat.id, reference(repeat), now),
-    ).rejects.toMatchObject({ code: "not_due" });
-    const later = new Date(now.getTime() + 60000);
-    await prepareAnswer(getDb(), owner, repeat.id, reference(repeat), later);
-    await finalizeReview(getDb(), owner, repeat.id, "accept", later);
-    today = await getToday(getDb(), owner, later);
-    if (today.session) await endReview(getDb(), owner, today.session.id);
-    today = await startReview(getDb(), owner, later);
-    item = today.session!.item!;
-    await prepareAnswer(getDb(), owner, item.id, reference(item), later);
-    await finalizeReview(getDb(), owner, item.id, "accept", later);
-    expect(await getToday(getDb(), owner, later)).toMatchObject({
+    expect(
+      await startReview(getDb(), owner, new Date("2030-01-01T23:59:59Z")),
+    ).toMatchObject({
       completed: 1,
-      attempts: 3,
+      attempts: 1,
+      dueCards: 0,
+      dueDirections: 0,
+      session: null,
     });
-    expect(new Set((await events()).map((e) => e.direction)).size).toBe(2);
+    const tomorrow = new Date("2030-01-02T00:00:00Z");
+    const today = await startReview(getDb(), owner, tomorrow);
+    const repeat = today.session!.item!;
+    expect(repeat.direction).toBe(item.direction);
+    expect(repeat.cardId).toBe(item.cardId);
+    await prepareAnswer(getDb(), owner, repeat.id, reference(repeat), tomorrow);
+    const result = await finalizeReview(
+      getDb(),
+      owner,
+      repeat.id,
+      "accept",
+      tomorrow,
+    );
+    expect(Date.parse(result.dueAt!)).toBeGreaterThan(
+      tomorrow.getTime() + 86400000,
+    );
+    expect(await startReview(getDb(), owner, tomorrow)).toMatchObject({
+      completed: 1,
+      attempts: 1,
+      dueCards: 0,
+      session: null,
+    });
+    // The opposite direction keeps its independent schedule for a later day.
+    const next = await startReview(
+      getDb(),
+      owner,
+      new Date("2030-01-03T00:00:00Z"),
+    );
+    expect(next.session?.item?.direction).not.toBe(item.direction);
+    expect(await events()).toHaveLength(2);
   });
+  it("retires legacy same-day queued repeats when resuming an old session", async () => {
+    await save();
+    const { item } = await session();
+    await revealAnswer(getDb(), owner, item.id, now);
+    await finalizeReview(getDb(), owner, item.id, "again", now);
+    const oldSession = crypto.randomUUID();
+    await getDb().query(
+      "INSERT INTO review_sessions(id,owner_id,created_at) VALUES($1,$2,$3)",
+      [oldSession, owner, now],
+    );
+    await getDb().query(
+      `INSERT INTO review_items(id,session_id,card_id,card_version,direction,schedule_revision,position,available_at)
+      SELECT $1,$2,card_id,1,direction,revision,0,$3 FROM review_schedules WHERE card_id=$4 AND direction=$5`,
+      [crypto.randomUUID(), oldSession, now, item.cardId, item.direction],
+    );
+    expect(await getToday(getDb(), owner, now)).toMatchObject({
+      dueCards: 0,
+      session: null,
+    });
+    expect(await startReview(getDb(), owner, now)).toMatchObject({
+      dueCards: 0,
+      session: null,
+    });
+  });
+  it.each([
+    ["2030-03-31T00:30:00Z", "2030-03-31T22:00:00Z"],
+    ["2030-10-27T00:30:00Z", "2030-10-27T23:00:00Z"],
+  ])(
+    "makes a wrong answer due at the next local midnight across DST (%s)",
+    async (at, expected) => {
+      await getDb().query(
+        "UPDATE owner_preferences SET timezone='Europe/Amsterdam' WHERE owner_id=$1",
+        [owner],
+      );
+      await save();
+      const instant = new Date(at);
+      const item = (await startReview(getDb(), owner, instant)).session!.item!;
+      await revealAnswer(getDb(), owner, item.id, instant);
+      const result = await finalizeReview(
+        getDb(),
+        owner,
+        item.id,
+        "again",
+        instant,
+      );
+      expect(result.dueAt).toBe(new Date(expected).toISOString());
+      expect(
+        (await startReview(getDb(), owner, new Date(Date.parse(expected) - 1)))
+          .session,
+      ).toBeNull();
+      expect(
+        (await startReview(getDb(), owner, new Date(expected))).session?.item
+          ?.direction,
+      ).toBe(item.direction);
+    },
+  );
   it("keeps abstentions and typos pending, records self-assessment without rewriting the original verdict", async () => {
     await save();
     const { item } = await session();
@@ -414,17 +515,19 @@ describe("daily reviews", () => {
     ).toBe(true);
     expect((await getToday(getDb(), owner, now)).session).toBeNull();
   });
-  it("prioritizes existing due backlog over new cards and leaves the other direction untouched", async () => {
+  it("prioritizes missed cards tomorrow without blocking new cards behind the backlog", async () => {
     const first = await save();
-    const { today, item } = await session();
+    const { item } = await session();
     await revealAnswer(getDb(), owner, item.id, now);
     await finalizeReview(getDb(), owner, item.id, "again", now);
-    await endReview(getDb(), owner, today.session!.id);
     await save(1);
-    const started = await startReview(getDb(), owner, now);
-    expect(started.session?.remaining).toBe(1);
+    const started = await startReview(
+      getDb(),
+      owner,
+      new Date("2030-01-02T00:00:00Z"),
+    );
+    expect(started.session?.remaining).toBe(2);
     expect(started.session?.item?.cardId).toBe(first.cardId);
-    expect(started.newRemaining).toBe(0);
   });
   it("counts goals in the owner's chosen timezone across midnight and travel", async () => {
     await save();

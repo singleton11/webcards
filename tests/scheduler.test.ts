@@ -59,7 +59,7 @@ describe("review policy", () => {
     expect(automaticRating({ ...grade, verdict: "typo" })).toBe(null);
     expect(automaticRating({ ...grade, verdict: "needs_review" })).toBe(null);
   });
-  it("uses a one-minute Again step and independent serializable FSRS states", () => {
+  it("uses day-scale FSRS intervals and independent serializable states", () => {
     const original = emptySchedule(now);
     const failed = scheduleReview(original, "again", now);
     const passed = scheduleReview(
@@ -68,13 +68,13 @@ describe("review policy", () => {
       now,
     );
     expect(original.reps).toBe(0);
-    expect(failed.card.due.getTime() - now.getTime()).toBe(60000);
+    expect(failed.card.due.getTime() - now.getTime()).toBe(86400000);
     expect(failed.card.reps).toBe(1);
     expect(passed.card.due.getTime()).toBeGreaterThan(
       failed.card.due.getTime(),
     );
   });
-  it("repeated successful recall increases stability; a failure enters short relearning", () => {
+  it("repeated successful recall increases stability; a failure reduces the next interval", () => {
     let card = emptySchedule(now);
     for (let i = 0; i < 6; i++)
       card = scheduleReview(card, "good", card.due).card;
@@ -83,7 +83,7 @@ describe("review policy", () => {
     const failure = scheduleReview(card, "again", card.due).card;
     expect(success.stability).toBeGreaterThan(card.stability);
     expect(failure.stability).toBeLessThan(card.stability);
-    expect(failure.state).toBe(State.Relearning);
+    expect(failure.state).toBe(State.Review);
     expect(failure.due.getTime()).toBeLessThan(success.due.getTime());
   });
   it("uses IANA local days across midnight, DST and travel without changing UTC instants", () => {

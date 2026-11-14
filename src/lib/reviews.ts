@@ -57,15 +57,18 @@ async function transaction<T>(
     c.release();
   }
 }
-async function prune(c: PoolClient, owner: string) {
+async function prune(c: PoolClient, owner: string, now: Date) {
   await c.query(
     `UPDATE review_items i SET status='skipped'
     FROM review_sessions s, cards c WHERE i.session_id=s.id AND s.owner_id=$1
     AND i.card_id=c.id AND i.status='pending'
     AND (c.status<>'active' OR c.current_version<>i.card_version
       OR NOT EXISTS (SELECT 1 FROM review_schedules r WHERE r.card_id=i.card_id
-        AND r.direction=i.direction AND r.revision=i.schedule_revision))`,
-    [owner],
+        AND r.direction=i.direction AND r.revision=i.schedule_revision)
+      OR EXISTS (SELECT 1 FROM review_events e JOIN owner_preferences p ON p.owner_id=e.owner_id
+        WHERE e.card_id=i.card_id AND e.owner_id=$1
+        AND (e.reviewed_at AT TIME ZONE p.timezone)::date=($2::timestamptz AT TIME ZONE p.timezone)::date))`,
+    [owner, now],
   );
   await c.query(
     `UPDATE review_sessions s SET active=false WHERE owner_id=$1 AND active
@@ -100,6 +103,8 @@ async function item(c: PoolClient, owner: string, id: string): Promise<Item> {
   return rows.rows[0];
 }
 async function validItem(c: PoolClient, owner: string, id: string, now: Date) {
+  // Also discard same-day repeats saved by the previous quiz policy.
+  await prune(c, owner, now);
   const found = await item(c, owner, id);
   const valid = await c.query(
     `SELECT 1 FROM cards c JOIN review_schedules r ON r.card_id=c.id
@@ -124,7 +129,7 @@ async function validItem(c: PoolClient, owner: string, id: string, now: Date) {
     throw new ReviewError(
       409,
       "not_due",
-      "This relearning step is not due yet. You can pause and return later.",
+      "This card is not due yet. You can pause and return later.",
     );
   // Only the frozen queue head can be checked, even if a client knows another item ID.
   const head = await c.query(
@@ -141,27 +146,18 @@ async function validItem(c: PoolClient, owner: string, id: string, now: Date) {
 }
 async function preferences(c: PoolClient, owner: string) {
   const result = await c.query(
-    "SELECT timezone,daily_goal FROM owner_preferences WHERE owner_id=$1",
+    "SELECT timezone FROM owner_preferences WHERE owner_id=$1",
     [owner],
   );
   if (!result.rows[0])
     throw new ReviewError(404, "owner", "Owner preferences are unavailable.");
-  return result.rows[0] as { timezone: string; daily_goal: number };
+  return result.rows[0] as { timezone: string };
 }
-async function introducedToday(
-  c: PoolClient,
-  owner: string,
-  now: Date,
-  timezone: string,
-) {
-  const result = await c.query(
-    `SELECT count(*)::int AS count FROM review_introductions i
-    JOIN cards c ON c.id=i.card_id WHERE c.owner_id=$1
-    AND (i.introduced_at AT TIME ZONE $2)::date=$3::date`,
-    [owner, timezone, localDay(now, timezone)],
-  );
-  return result.rows[0].count as number;
-}
+// A finalized answer retires the whole card for this day, not just one direction.
+// Use the same filter for counts and selection so an empty queue really is empty.
+const notAnsweredToday = `NOT EXISTS (SELECT 1 FROM review_events e
+  WHERE e.owner_id=$1 AND e.card_id=c.id
+  AND (e.reviewed_at AT TIME ZONE $4)::date=$3::date)`;
 export async function getToday(
   db: Pool,
   owner: string,
@@ -169,7 +165,7 @@ export async function getToday(
 ): Promise<Today> {
   return transaction(db, owner, async (c) => {
     await ensureSchedules(c, owner, now);
-    await prune(c, owner);
+    await prune(c, owner, now);
     const p = await preferences(c, owner);
     const day = localDay(now, p.timezone);
     const progress = await c.query(
@@ -179,18 +175,10 @@ export async function getToday(
     );
     const due = await c.query(
       `SELECT count(DISTINCT c.id)::int AS cards,count(*)::int AS directions
-      FROM review_schedules r JOIN cards c ON c.id=r.card_id WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2`,
-      [owner, now],
+      FROM review_schedules r JOIN cards c ON c.id=r.card_id
+      WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2 AND ${notAnsweredToday}`,
+      [owner, now, day, p.timezone],
     );
-    const backlog = await c.query(
-      `SELECT EXISTS(SELECT 1 FROM review_schedules r JOIN cards c ON c.id=r.card_id
-      WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2
-      AND ((r.state->>'state')::int<>0 OR EXISTS(SELECT 1 FROM review_introductions x WHERE x.card_id=c.id))) AS present`,
-      [owner, now],
-    );
-    const remainingNew = backlog.rows[0].present
-      ? 0
-      : Math.max(0, 5 - (await introducedToday(c, owner, now, p.timezone)));
     const active = await c.query(
       "SELECT id FROM review_sessions WHERE owner_id=$1 AND active",
       [owner],
@@ -226,11 +214,9 @@ export async function getToday(
     return {
       timezone: p.timezone,
       day,
-      goal: p.daily_goal,
       ...progress.rows[0],
       dueCards: due.rows[0].cards,
       dueDirections: due.rows[0].directions,
-      newRemaining: remainingNew,
       session,
     };
   });
@@ -238,7 +224,7 @@ export async function getToday(
 export async function startReview(db: Pool, owner: string, now = new Date()) {
   await transaction(db, owner, async (c) => {
     await ensureSchedules(c, owner, now);
-    await prune(c, owner);
+    await prune(c, owner, now);
     if (
       (
         await c.query(
@@ -249,29 +235,25 @@ export async function startReview(db: Pool, owner: string, now = new Date()) {
     )
       return;
     const p = await preferences(c, owner);
-    const newRemaining = Math.max(
-      0,
-      5 - (await introducedToday(c, owner, now, p.timezone)),
-    );
-    // Rank each direction independently; pick one per card, never a second new-card slot.
+    // Keep direction-specific schedules, but challenge each eligible card only once.
+    // Retry a missed direction before an untouched opposite direction.
+    const missed = `(SELECT e.rating='again' FROM review_events e
+      WHERE e.card_id=c.id AND e.direction=r.direction
+      ORDER BY e.reviewed_at DESC,e.attempt_id DESC LIMIT 1)`;
     const candidates = await c.query(
       `WITH ranked AS (
       SELECT c.id,c.current_version,r.direction,r.revision,r.due_at,
-        CASE WHEN (r.state->>'state')::int IN (1,3) THEN 0
+        CASE WHEN ${missed} OR (r.state->>'state')::int IN (1,3) THEN 0
           WHEN EXISTS(SELECT 1 FROM review_introductions x WHERE x.card_id=c.id) THEN 1 ELSE 2 END AS priority,
         row_number() OVER(PARTITION BY c.id ORDER BY
-          CASE WHEN (r.state->>'state')::int IN (1,3) THEN 0 ELSE 1 END,r.due_at,
+          CASE WHEN ${missed} OR (r.state->>'state')::int IN (1,3) THEN 0 ELSE 1 END,r.due_at,
           CASE WHEN r.direction=CASE WHEN mod(abs(hashtextextended(c.id::text || $3,0)::numeric),2)=0 THEN 'ru-en' ELSE 'en-ru' END THEN 0 ELSE 1 END) AS rank
       FROM cards c JOIN review_schedules r ON r.card_id=c.id
-      WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2)
-      SELECT * FROM ranked WHERE rank=1 ORDER BY priority,due_at,id LIMIT 200`,
-      [owner, now, localDay(now, p.timezone)],
+      WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2 AND ${notAnsweredToday})
+      SELECT * FROM ranked WHERE rank=1 ORDER BY priority,due_at,id`,
+      [owner, now, localDay(now, p.timezone), p.timezone],
     );
-    const hasBacklog = candidates.rows.some((r) => r.priority < 2);
-    let newSlots = hasBacklog ? 0 : newRemaining;
-    const selected = candidates.rows
-      .filter((r) => r.priority < 2 || newSlots-- > 0)
-      .slice(0, Math.min(p.daily_goal, 50));
+    const selected = candidates.rows;
     if (!selected.length) return;
     const sessionId = randomUUID();
     await c.query(
@@ -426,7 +408,7 @@ export async function finalizeReview(
         "UPDATE review_items SET status='skipped',result=$2 WHERE id=$1",
         [id, JSON.stringify(result)],
       );
-      await prune(c, owner);
+      await prune(c, owner, now);
       return result;
     }
     if (!i.grade)
@@ -450,6 +432,17 @@ export async function finalizeReview(
     ).rows[0];
     const before = schedule.state as CardInput;
     const after = scheduleReview(before, rating, now);
+    const p = await preferences(c, owner);
+    const nextDay = (
+      await c.query(
+        `SELECT ((($1::timestamptz AT TIME ZONE $2)::date + 1)::timestamp AT TIME ZONE $2) AS start`,
+        [now, p.timezone],
+      )
+    ).rows[0].start as Date;
+    // FSRS still learns from mistakes, but their next challenge is tomorrow.
+    // Successful recall keeps its FSRS interval, with no same-day learning steps.
+    after.card.due =
+      rating === "again" || after.card.due < nextDay ? nextDay : after.card.due;
     const result = { decision, dueAt: after.card.due.toISOString() };
     await c.query(
       `INSERT INTO review_events(attempt_id,owner_id,card_id,card_version,direction,answer,grade,rating,source,
@@ -493,23 +486,7 @@ export async function finalizeReview(
       "UPDATE review_items SET status='finalized',result=$2 WHERE id=$1",
       [id, JSON.stringify(result)],
     );
-    // FSRS, not a separate mistake rank, chooses when short-term repetition is due.
-    if (after.card.state === 1 || after.card.state === 3) {
-      await c.query(
-        `INSERT INTO review_items(id,session_id,card_id,card_version,direction,schedule_revision,position,available_at)
-        SELECT $1,$2,$3,$4,$5,$6,COALESCE(max(position),-1)+1,$7 FROM review_items WHERE session_id=$2`,
-        [
-          randomUUID(),
-          i.session_id,
-          i.card_id,
-          i.card_version,
-          i.direction,
-          updated.rows[0].revision,
-          after.card.due,
-        ],
-      );
-    }
-    await prune(c, owner);
+    await prune(c, owner, now);
     return result;
   });
 }

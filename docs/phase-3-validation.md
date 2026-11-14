@@ -1,5 +1,7 @@
 # Phase 3 validation and release boundaries
 
+This is the historical Phase 3 record. The quiz policy was subsequently changed; see [Quiz policy validation](quiz-policy-validation.md) for current behavior and evidence.
+
 ## Scope
 
 Phase 3 adds the daily review loop to the existing single-owner translator and saved-card library. The local Today screen starts one resumable session at a time; per-direction schedules and attempts live in PostgreSQL; answer checking is separate from review finalization. No production hosting, live model request, deployment, reminder, installable PWA, or public access is part of this phase.

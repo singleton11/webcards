@@ -70,12 +70,10 @@ export type ReviewSession = {
 export type Today = {
   timezone: string;
   day: string;
-  goal: number;
   completed: number;
   attempts: number;
   dueCards: number;
   dueDirections: number;
-  newRemaining: number;
   session: ReviewSession | null;
 };
 export class ReviewError extends Error {

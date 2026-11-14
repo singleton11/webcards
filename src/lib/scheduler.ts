@@ -9,12 +9,13 @@ import {
 import type { Direction, Grade } from "./review-contracts";
 import { normalizeCardText, type CardContent } from "./card-contracts";
 
-export const SCHEDULER_VERSION = "ts-fsrs-5.2.0/fsrs-6/webcards-v1";
+export const SCHEDULER_VERSION = "ts-fsrs-5.2.0/fsrs-6/webcards-v2";
 export const SCHEDULER_PARAMETERS = generatorParameters({
   request_retention: 0.9,
   enable_fuzz: false,
-  learning_steps: ["1m", "10m"],
-  relearning_steps: ["1m"],
+  enable_short_term: false,
+  learning_steps: [],
+  relearning_steps: [],
 });
 const scheduler = fsrs(SCHEDULER_PARAMETERS);
 export function emptySchedule(now: Date): Card {
