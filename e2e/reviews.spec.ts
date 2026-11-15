@@ -1,5 +1,8 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-const origin = "http://127.0.0.1:33117";
+const origin =
+  process.env.WEBCARDS_E2E_HTTPS === "1"
+    ? "https://127.0.0.1:33117"
+    : "http://127.0.0.1:33117";
 let cookies: Awaited<ReturnType<BrowserContext["cookies"]>>;
 test.beforeAll(async ({ browser }) => {
   const context = await browser.newContext();
@@ -92,7 +95,9 @@ for (const viewport of [
       await expect(
         question.getByRole("heading", { name: item.prompt, exact: true }),
       ).toBeVisible();
-      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(0);
+      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(
+        0,
+      );
       await expect(
         question.getByText(card.content.sense, { exact: true }),
       ).toHaveCount(0);
@@ -102,13 +107,17 @@ for (const viewport of [
       await expect(question.locator(".review-reference")).toHaveCount(0);
       await page.reload();
       await expect(page.getByLabel("Your translation")).toBeVisible();
-      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(0);
+      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(
+        0,
+      );
       await expect(
         question.getByText(card.content.sense, { exact: true }),
       ).toHaveCount(0);
       await page.getByRole("button", { name: "Show answer" }).click();
       await expect(question.locator(".review-reference")).toHaveText(
-        item.direction === "ru-en" ? card.content.english : card.content.russian,
+        item.direction === "ru-en"
+          ? card.content.english
+          : card.content.russian,
       );
     });
     test("translate, save, resume feedback, and retire an answered card for today", async ({

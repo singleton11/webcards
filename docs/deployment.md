@@ -1,35 +1,30 @@
 # Personal deployment
 
-Webcards is designed for a small number of locally provisioned accounts behind an HTTPS reverse proxy such as Caddy. Each account has a private workspace, vocabulary, review progress, quotas, and preferences. Keep the Next.js listener private at `127.0.0.1:3001` and PostgreSQL on loopback, using a dedicated database and role. Public source code does not enable public signup.
+Webcards has two runtime pieces: a static React/Vite frontend served directly by Caddy, and a loopback-only Rust API on 127.0.0.1:3001. PostgreSQL, account provisioning, Better Auth sessions, review schedules, and the LiteLLM adapter remain unchanged on the private API. Public signup stays disabled. There is no database migration for this architectural change.
 
-## Configuration
+## Build and service
 
-Follow the README's database, model-credential, migration, and initial-owner creation steps. To add a separate account, use `npm run account:create -- <username>` with its password piped via stdin; run only from the trusted host. No account-creation endpoint is exposed to the browser or the public network. Set `BETTER_AUTH_URL` to your actual HTTPS origin before deployment. Keep `.env.local` and any sign-in notes outside version control, with mode 0600. Never put a database password, auth secret, model key, or owner password into the service template or documentation.
+Run the same test, build, and deployment approval gates that apply to other releases. Use a separate checkout or isolated worktree: the running service's working tree and .env.local are not safe places for development or validation builds. Run `npm ci` (including build dependencies), then `npm run build` (Rust compilation and the frontend build).
 
-`infra/webcards.service` is an example systemd user unit. Replace `/srv/webcards` with the absolute path to your checkout and verify the Node.js binary path before installing a copy at `~/.config/systemd/user/webcards.service`. The template uses UTC, matching the app's default review-day timezone. A timezone settings UI is not configured.
+The service template `infra/webcards.service` sets its working directory to `/srv/webcards`, reads `.env.local` using systemd `EnvironmentFile`, and runs `dist/webcards-api`. The API listens on 127.0.0.1:3001. The static site lives in dist/frontend; the API does not serve it. The API service receives .env.local and retains all existing database, auth, and model credentials. The frontend build uses no VITE_* configuration or provider credentials.
 
-Build the app before starting the service, reload the user units with `systemctl --user daemon-reload`, then enable and start the service with `systemctl --user enable --now webcards.service`. The unit restarts the app on failure. Configure lingering separately if it must start at boot without an interactive user session.
+For local development, npm run dev starts Vite at http://127.0.0.1:3000 and the API on loopback port 3001. The Vite dev proxy sends /api/* to the API. For production validation, run typechecking, unit/integration tests, and the Playwright suite; its fixture builds the release assets, starts a disposable PostgreSQL cluster and fake model, and serves the bundle through an isolated Caddy process. The HTTPS browser suite uses a temporary isolated CA and does not modify the system trust store.
 
-An example Caddy site, using a placeholder domain:
+## Caddy
 
-```caddyfile
-webcards.example.com {
-    reverse_proxy 127.0.0.1:3001
-}
-```
+The maintained infra/Caddyfile serves files from /srv/webcards/dist/frontend, applies security and cache headers, and proxies only /api/* to the API. Client-side card routes such as /list/<uuid> fall back to the static index.html app shell. The API has independent body-size, origin, authentication, and no-store protections. Static JavaScript uses hashed filenames and immutable caching; app HTML and private API responses use no-store.
 
-Use your own hostname, ensure its DNS and HTTPS certificate are valid, and validate Caddy's configuration before reloading it. Do not expose the app listener or PostgreSQL directly.
+The personal deployment runs Caddy inside Docker with host networking. Its read-only static-file mount contains versioned frontend releases and a relative `current` symlink; the Webcards site root points at that symlink. Only `/api/*` is reverse-proxied to 127.0.0.1:3001. For another host, provide a read-only mount for the frontend bundle, update the Webcards site block using `infra/Caddyfile`, and configure WEBCARDS_STATIC_ROOT to the mounted path (for example /srv/webcards/dist/frontend). Keep Caddy's existing service sites, volumes, restart policy, network mode, TLS storage, and other unrelated configuration unchanged. Validate the effective Caddy configuration inside its container before applying it. Use the complete maintained directives in `infra/Caddyfile`; it also configures response compression, security headers, immutable asset caching, and the PWA manifest MIME type. Do not mount .env.local, .git, PostgreSQL files, or the API bundle into the Caddy container. Never expose the API outside loopback or publish database, auth, or model credentials to the browser.
+
+## Cutover
+
+The active personal deployment still uses the static frontend and Node API; the Rust rewrite changes source and release templates only. Its service runs a versioned API release outside the source checkout, with the existing private configuration supplied through systemd. The checked-in Rust replacement is documented and validated separately in [Rust API migration](rust-api.md); it is not deployed. The previous Next.js build and its dependencies are retained in an independent rollback release. Host-specific paths and the rollback command are recorded in the ignored `.local/` directory, not in public configuration. Creating a build or editing this repository does not authorize changing services on another host. An explicitly approved Rust cutover should build and stage a versioned release directory, validate its static assets and API using isolated data, preserve Caddy's existing static mount and routing, restart/replace only the API unit, and verify HTTPS, login/logout, account isolation, static caching, deep links, reviews, and runtime memory. Retain the previous Node release bundle, dependency tree, Caddy configuration, and unit file for a prompt rollback; restore the earlier API unit if validation fails. Caddy does not need to restart for a backend-only replacement at the same loopback address. No database migration, reset, or manual data modification is needed; login/logout verification naturally reads the database and updates sessions. Do not change the auth/session secret or LiteLLM key during this cutover.
 
 ## Operations
 
-- Check status: `systemctl --user status webcards.service`
-- Restart: `systemctl --user restart webcards.service`
-- Read recent logs: `journalctl --user -u webcards.service -n 100 --no-pager`
-- App config: `.env.local` in the checkout (mode 0600; contains database, auth, and dedicated LiteLLM credentials)
-- Local host-specific deployment notes: keep outside Git, for example in the ignored `.local/` directory.
+- API status: systemctl --user status webcards.service
+- API logs: journalctl --user -u webcards.service -n 100 --no-pager
+- Static build output: dist/frontend/
+- Caddy's configuration and site routing are managed with the existing host Caddy deployment, not this systemd user service.
 
-For an application update, validate an isolated checkout first. Automated test suites use disposable databases and a fake model, not production data or model credentials. Do not run `next dev`, browser-test servers, or validation builds against the active deployment directory: replacing its `.next` output can break requests from the running process. For an in-place release, stop the app, install locked dependencies if changed, apply required migrations, build, and start it again; this causes a maintenance interruption. Keep configuration and credentials private. A live model smoke check requires separate authorization and is not a model-quality benchmark.
-
-The installable app uses a manifest and home-screen icons, without a service worker or offline data cache. Open the HTTPS site in a supported browser and use its install or Add to Home Screen menu; see the README for platform-specific instructions. The installed app loads updates when it is reloaded or reopened, and still needs a connection for sign-in, translations, vocabulary, and reviews.
-
-This setup does not add backup/restore automation, account export/deletion, offline model access, cross-account sharing, multi-instance support, or a provider privacy/terms review. Review upstream handling before entering sensitive text.
+Webcards remains online-only, with no service worker or offline data cache. Translation and non-exact quiz grading continue to send text to the configured LiteLLM upstream; its retention policy has not been verified. Keep sensitive text out until upstream handling is reviewed. Backup/restore, account export/deletion, and provider privacy/terms review remain out of scope for this change.

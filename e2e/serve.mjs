@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -8,7 +8,8 @@ const root = mkdtempSync(join(tmpdir(), "webcards-browser-pg-"));
 const data = join(root, "data"),
   pg = process.env.POSTGRES_BIN || "/usr/lib/postgresql/17/bin";
 let started = false,
-  next;
+  stopping = false;
+const children = [];
 const mock = createServer(async (req, res) => {
   let raw = "";
   for await (const chunk of req) raw += chunk;
@@ -94,8 +95,27 @@ async function port() {
   await new Promise((r) => s.close(r));
   return n;
 }
-function shutdown() {
-  if (next) next.kill("SIGTERM");
+async function shutdown() {
+  stopping = true;
+  await Promise.all(
+    children.map(
+      (child) =>
+        new Promise((resolve) => {
+          if (
+            child.exitCode !== null ||
+            child.signalCode !== null ||
+            !child.pid
+          )
+            return resolve();
+          const timer = setTimeout(() => child.kill("SIGKILL"), 5000);
+          child.once("exit", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+          child.kill("SIGTERM");
+        }),
+    ),
+  );
   mock.close();
   if (started) {
     try {
@@ -117,15 +137,14 @@ function shutdown() {
   rmSync(root, { recursive: true, force: true });
   return true;
 }
-process.on("SIGINT", () => {
-  process.exit(shutdown() ? 0 : 1);
-});
-process.on("SIGTERM", () => {
-  process.exit(shutdown() ? 0 : 1);
-});
+for (const signal of ["SIGINT", "SIGTERM"])
+  process.on(signal, () => {
+    if (!stopping) void shutdown().then((ok) => process.exit(ok ? 0 : 1));
+  });
 try {
   const dbPort = await port(),
-    modelPort = await port();
+    modelPort = await port(),
+    apiPort = await port();
   execFileSync(
     join(pg, "initdb"),
     [
@@ -154,12 +173,18 @@ try {
   );
   started = true;
   await new Promise((resolve) => mock.listen(modelPort, "127.0.0.1", resolve));
+  const origin =
+    process.env.WEBCARDS_E2E_HTTPS === "1"
+      ? "https://127.0.0.1:33117"
+      : "http://127.0.0.1:33117";
   const env = {
     ...process.env,
+    NODE_ENV: "test",
+    PORT: String(apiPort),
     WEBCARDS_E2E_FIXTURE: "1",
     DATABASE_URL:
       "postgresql://webcards_test@127.0.0.1:" + dbPort + "/postgres",
-    BETTER_AUTH_URL: "http://127.0.0.1:33117",
+    BETTER_AUTH_URL: origin,
     BETTER_AUTH_SECRET: "isolated-test-secret-not-for-deployment-1234",
     OWNER_USERNAME: "owner",
     LITELLM_API_KEY: "fixture-only",
@@ -171,22 +196,49 @@ try {
     env,
     stdio: "inherit",
   });
-  next = spawn(
-    "./node_modules/.bin/next",
-    [
-      process.env.WEBCARDS_E2E_PRODUCTION === "1" ? "start" : "dev",
-      "--hostname",
-      "127.0.0.1",
-      "--port",
-      "33117",
-    ],
-    { env, stdio: "inherit" },
+  const config = join(root, "Caddyfile");
+  writeFileSync(
+    config,
+    `{\n\tadmin off\n\tauto_https ${process.env.WEBCARDS_E2E_HTTPS === "1" ? "disable_redirects" : "off"}\n\tdefault_bind 127.0.0.1\n\tskip_install_trust\n}\n` +
+      (process.env.WEBCARDS_E2E_HTTPS === "1"
+        ? readFileSync("infra/Caddyfile", "utf8").replace(
+            "{$WEBCARDS_ADDRESS:webcards.example.com} {",
+            "{$WEBCARDS_ADDRESS:webcards.example.com} {\n\ttls internal",
+          )
+        : readFileSync("infra/Caddyfile", "utf8")),
   );
-  next.on("exit", (code) => {
-    process.exit(shutdown() ? code || 0 : 1);
-  });
+  children.push(
+    spawn(process.env.WEBCARDS_API_BIN || "./dist/webcards-api", [], { env, stdio: "inherit" }),
+  );
+  children.push(
+    spawn(
+      process.env.WEBCARDS_CADDY_BIN || "caddy",
+      ["run", "--config", config, "--adapter", "caddyfile"],
+      {
+        env: {
+          ...env,
+          WEBCARDS_ADDRESS: origin,
+          WEBCARDS_API: "127.0.0.1:" + apiPort,
+          WEBCARDS_STATIC_ROOT: join(process.cwd(), "dist/frontend"),
+          XDG_CONFIG_HOME: join(root, "caddy-config"),
+          XDG_DATA_HOME: join(root, "caddy-data"),
+        },
+        stdio: "inherit",
+      },
+    ),
+  );
+  for (const child of children) {
+    child.on("error", (error) => {
+      console.error(error);
+      if (!stopping) void shutdown().then(() => process.exit(1));
+    });
+    child.on("exit", (code) => {
+      if (!stopping)
+        void shutdown().then((ok) => process.exit(ok ? code || 1 : 1));
+    });
+  }
 } catch (error) {
-  shutdown();
+  await shutdown();
   console.error(error);
   process.exit(1);
 }

@@ -2,6 +2,14 @@
 
 A private Russian/English translator with an opt-in personal vocabulary list, daily typed reviews with spaced repetition, and installable home-screen app support. PWA installation provides a standalone window; sign-in, translation, saved vocabulary, and reviews still require the network. No service worker or offline/private-data cache is installed, so app code updates are picked up when you reload or reopen the hosted app. PWA and deployment have shipped as separate follow-up phases.
 
+## Architecture
+
+The browser downloads a static React/Vite frontend. Caddy serves those files and proxies same-origin `/api/*` requests to a loopback-only Rust API. Authentication, account isolation, PostgreSQL, LiteLLM requests, and review scheduling stay on the server; static files contain no application credentials or vocabulary. The Rust binary preserves the existing PostgreSQL schema and Better Auth credentials/sessions; no database migration is required. Node.js is used for frontend builds, tests, and existing administrative scripts, not to run the production API.
+
+See [Rust API migration](docs/rust-api.md) for compatibility, validation, and deployment boundaries.
+
+See [deployment](docs/deployment.md) for the Caddy configuration, static file mount, and deployment safety notes.
+
 ## PWA installation
 
 Webcards publishes a web app manifest, including install icons and standalone display mode. After updating an existing deployment, reload the hosted site to receive current installation metadata.
@@ -14,7 +22,7 @@ Webcards publishes a web app manifest, including install icons and standalone di
 ## Phase 1
 
 - Responsive private-workspace translator with separate credentials, vocabulary, and review progress for each locally provisioned account. Russian-to-English and English-to-Russian directions, optional context, ambiguity questions, explicit-submit behavior, and retained input on errors.
-- Maintained Better Auth username/password login; public signup is disabled. Accounts are provisioned only through a trusted local CLI operation. Passwords are hashed with Better Auth's password implementation; sessions are stored in PostgreSQL.
+- Private username/password login compatible with the existing Better Auth password hashes and signed sessions; public signup is disabled. Accounts are provisioned only through a trusted local CLI operation using Better Auth's password implementation. Rust verifies the hashes and stores sessions in PostgreSQL.
 - PostgreSQL-backed per-account preferences and atomic per-account/day translation-request limits. The legacy daily-goal preference is retained in storage but no longer limits or appears in the quiz. Better Auth schema updates and versioned, checksum-verified application migrations are separate.
 - Server-only LiteLLM Responses adapter pinned to `chatgpt-gpt-6-luna`, with strict request/result validation, no provider-side response storage, a bounded SSE parser, one bounded retry, a 20-second overall deadline, and a two-request concurrency limit.
 - Translation alone never creates a card or permanent translation history. A bounded in-process, 60-second translation request-ID replay window prevents retries from calling the model twice while the single local process is running.
@@ -35,7 +43,7 @@ Existing local installations must run `npm run db:migrate` before starting this 
 
 - **Today** starts one resumable, server-owned review queue containing all currently eligible cards, without a daily goal, new-card cap, session-size cap, or scan limit. Missed and previously introduced due cards come before new cards, but never block them. The order is frozen so reloads resume the same question. Only one queue per account is active.
 - **One appearance per card per day:** finalizing either a correct or incorrect answer hides the whole card in both directions for the rest of the configured server day. A missed card returns at the next calendar midnight, with its missed direction prioritized. Correct recall follows FSRS and is never requeued the same day. Once the queue is exhausted, Today shows that you are caught up. Newly saved cards can start another queue today. Unrated skips and ending a queue do not change schedules or retire a card for the day.
-- **Russian to English** and **English to Russian** schedules remain independent. PostgreSQL stores each direction's pinned `ts-fsrs@5.2.0` FSRS-6 state, due instant, concurrency revision, algorithm/parameters, and review history. Policy `webcards-v2` uses 90% desired retention, no random interval fuzz, and day-scale FSRS with short-term learning/relearning disabled. Mistakes still train FSRS with Again, but their due time is overridden to next midnight; correct recall uses Good and keeps its FSRS interval. The opposite direction retains its own due time, but cannot be asked until a later day.
+- **Russian to English** and **English to Russian** schedules remain independent. PostgreSQL stores each direction's FSRS-6 state, due instant, concurrency revision, algorithm/parameters, and review history. The Rust implementation is tested against the pinned `ts-fsrs@5.2.0` behavior. Policy `webcards-v2` uses 90% desired retention, no random interval fuzz, and day-scale FSRS with short-term learning/relearning disabled. Mistakes still train FSRS with Again, but their due time is overridden to next midnight; correct recall uses Good and keeps its FSRS interval. The opposite direction retains its own due time, but cannot be asked until a later day.
 - **Type an answer** in the prompt's opposite language. Only Unicode NFC and whitespace are normalized for automatic exact matches; case, punctuation, accents, morphology, and meaning are not silently erased. Non-exact answers are checked against one saved meaning, context, and direction using the configured Luna route. Model grades cannot supply a reference answer or update schedules.
 - **Uncertain judgments**, typos, timeouts, malformed model results, and outages never silently count as wrong. Show the saved reference and let the learner choose recalled/review tomorrow, skip without a rating, or retry the same answer. A reveal counts as Again only when the learner explicitly continues with that result; self-assessment is recorded separately from the original verdict.
 - **Transactional finalization** updates the attempt, answer, grade, and only its directional schedule together. Retried finalization returns the same result; stale content, stale schedules, or another tab cannot apply a second review. Edits preserve earlier review history and pause stale queued questions; use the card's explicit Reset learning control when its meaning changes. Reset clears both directional scheduler states but retains prior attempts.
@@ -45,7 +53,7 @@ Existing installations must run `npm run db:migrate` before starting this phase.
 
 ## Requirements
 
-- Node.js 22+, npm, and PostgreSQL 17+ on the local machine.
+- Rust 1.94.1, Cargo, Node.js 22.12+, npm, and PostgreSQL 17+ for development and validation. Caddy 2 is required for production static hosting and browser tests. The production API itself runs as the compiled Rust binary without Node.js.
 - A PostgreSQL role and database dedicated to Webcards; allow the app role to create its own schema/tables during the first migration. The application connects through a small bounded pool.
 - A dedicated LiteLLM virtual key restricted to `chatgpt-gpt-6-luna`; never reuse a Pi, proxy-master, or other general-purpose credential.
 
@@ -76,7 +84,7 @@ No production host, public signup, reverse proxy, Docker deployment, production 
    ```
 
 7. Set `LITELLM_BASE_URL=http://127.0.0.1:4000/v1`, `LITELLM_MODEL=chatgpt-gpt-6-luna`, and the dedicated `LITELLM_API_KEY` in `.env.local`.
-8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`.
+8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`. Vite serves the frontend on port 3000 and proxies `/api/*` to the API on loopback port 3001. If those ports are occupied, set `WEBCARDS_DEV_PORT` and `PORT` in the environment before starting, and set `BETTER_AUTH_URL` in `.env.local` to the matching frontend origin. In production, `npm run build` creates `dist/frontend` and `dist/webcards-api`; `npm start` runs only the Rust API, so a static host such as Caddy must serve the frontend.
 
 Database creation and the application credential are intentionally operator-managed; the project does not silently alter the shared PostgreSQL or LiteLLM service. `scripts/model-smoke.ts` runs one generic phrase in each direction when explicitly invoked via `npm run model:smoke`. This incurs real model requests; no quality benchmark or permitted-use/privacy review is implied.
 
@@ -85,8 +93,10 @@ The UI discloses that translation text and non-exact quiz answers (plus the rele
 ## Verification
 
 - `npm run typecheck` - TypeScript checking.
-- `npm test` - contract, translation/grading model-protocol, FSRS policy, timezone, disposable PostgreSQL migration/authentication/quota, card/review isolation, idempotency, versioning, search, lifecycle, and PWA manifest/icon tests.
-- `npm run test:browser` - authenticated translate/save/manage/review flows, PWA manifest and browser-install eligibility, install controls and platform-specific instructions at 390px and desktop sizes, against a disposable PostgreSQL cluster and a fake local model endpoint. The runner removes its temporary database when it exits. Set `POSTGRES_BIN` if PostgreSQL binaries are not in `/usr/lib/postgresql/17/bin`; install Chromium with `npx playwright install chromium` if needed.
-- `npm run build` - production bundle and generated routes.
+- `npm test` - existing contract/service suites plus cross-runtime Rust/PostgreSQL authentication, receipt, scheduling, isolation, and retry tests. Builds the Rust API first.
+- `npm run test:rust` and `npm run check:rust` - Rust unit tests and Clippy.
+- `npm run test:browser` - builds the frontend and API, then exercises real Caddy routing, authenticated translate/save/manage/review flows, PWA installability, mobile and desktop layouts, against disposable PostgreSQL and a fake model endpoint. The runner removes its temporary database when it exits. Set `POSTGRES_BIN` if PostgreSQL binaries are not in `/usr/lib/postgresql/17/bin`, set `WEBCARDS_CADDY_BIN` if Caddy is not on `PATH`, and install Chromium with `npx playwright install chromium` if needed.
+- `WEBCARDS_E2E_HTTPS=1 npm run test:browser` - run the same browser tests through isolated HTTPS with a temporary, untrusted Caddy CA; no system trust store is modified.
+- `npm run build` - build static frontend files and the standalone Rust API binary.
 
 Automated tests never use the real LiteLLM endpoint. See [Phase 2 validation](docs/phase-2-validation.md) and [Phase 3 validation](docs/phase-3-validation.md) for earlier evidence. The authorized two-phrase real-route smoke check described in the [Phase 1 validation record](docs/phase-1-validation.md) validated transport/direction only; it is not the independent held-out Russian/English release benchmark described in the product plan. The [personal host deployment](docs/deployment.md) covers the current Caddy and systemd setup; [PWA validation](docs/pwa-validation.md) records installability checks and device-testing limits.

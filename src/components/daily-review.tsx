@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { Link } from "react-router";
 import { useCallback, useEffect, useState } from "react";
 import type { ReviewCommand, Today } from "@/lib/review-contracts";
 
@@ -138,7 +138,7 @@ export function DailyReview() {
                   Start review
                 </button>
               )}{" "}
-              <Link className="secondary-button review-link" href="/">
+              <Link className="secondary-button review-link" to="/">
                 Translate something
               </Link>
             </section>
