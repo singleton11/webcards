@@ -208,7 +208,7 @@ try {
         : readFileSync("infra/Caddyfile", "utf8")),
   );
   children.push(
-    spawn(process.execPath, ["dist/server.mjs"], { env, stdio: "inherit" }),
+    spawn(process.env.WEBCARDS_API_BIN || "./dist/webcards-api", [], { env, stdio: "inherit" }),
   );
   children.push(
     spawn(

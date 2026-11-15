@@ -12,7 +12,7 @@ Environment=NODE_ENV=production
 Environment=TZ=UTC
 Environment=PORT=3001
 EnvironmentFile=/srv/webcards/.env.local
-ExecStart=/usr/bin/node /srv/webcards/dist/server.mjs
+ExecStart=/srv/webcards/dist/webcards-api
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30
