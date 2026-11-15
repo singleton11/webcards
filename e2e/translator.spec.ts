@@ -156,7 +156,12 @@ test("unauthenticated and untrusted-origin requests cannot submit text", async (
   expect(
     (
       await request.post("/api/translate", {
-        headers: { origin: "http://127.0.0.1:33117" },
+        headers: {
+          origin:
+            process.env.WEBCARDS_E2E_HTTPS === "1"
+              ? "https://127.0.0.1:33117"
+              : "http://127.0.0.1:33117",
+        },
         data: payload,
       })
     ).status(),

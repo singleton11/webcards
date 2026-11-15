@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { Link } from "react-router";
 import { useRef, useState } from "react";
 import type { Card, CardContent, CardResult } from "@/lib/card-contracts";
 import { cardRequest } from "@/lib/card-client";
@@ -113,7 +113,7 @@ export function CardDetails({ initialCard }: { initialCard: Card }) {
   }
   return (
     <main className="card-page">
-      <Link className="back-link" href="/list">
+      <Link className="back-link" to="/list">
         Back to My list
       </Link>
       {!card ? (

@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { Link } from "react-router";
 import { useRef, useState } from "react";
 import type { CardResult, CardContent } from "@/lib/card-contracts";
 import { cardRequest } from "@/lib/card-client";
@@ -79,7 +79,7 @@ export function SaveTranslation({
                 ? "Already saved"
                 : "Saved"}
           </span>
-          <Link href={"/list/" + result.cardId}>View card</Link>
+          <Link to={"/list/" + result.cardId}>View card</Link>
           {result.outcome === "created" && result.card.revision === 1 && (
             <button
               type="button"

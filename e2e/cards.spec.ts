@@ -1,6 +1,9 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
-const origin = "http://127.0.0.1:33117";
+const origin =
+  process.env.WEBCARDS_E2E_HTTPS === "1"
+    ? "https://127.0.0.1:33117"
+    : "http://127.0.0.1:33117";
 let cookies: Awaited<ReturnType<BrowserContext["cookies"]>>;
 let secondDeviceCookies: Awaited<ReturnType<BrowserContext["cookies"]>>;
 async function signIn(page: Page) {

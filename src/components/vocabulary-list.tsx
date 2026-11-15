@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { Link } from "react-router";
 import { useEffect, useState } from "react";
 import { cardRequest } from "@/lib/card-client";
 import type { CardList } from "@/lib/card-contracts";
@@ -123,9 +123,7 @@ export function VocabularyList() {
                 <article className="vocabulary-card" key={card.id}>
                   <span className="eyebrow">{card.content.sense}</span>
                   <h2 lang="en">
-                    <Link href={"/list/" + card.id}>
-                      {card.content.english}
-                    </Link>
+                    <Link to={"/list/" + card.id}>{card.content.english}</Link>
                   </h2>
                   <p className="russian-side" lang="ru">
                     {card.content.russian}
@@ -139,7 +137,7 @@ export function VocabularyList() {
                       {card.status === "archived" ? " / Archived" : ""}
                     </span>
                     <Link
-                      href={"/list/" + card.id}
+                      to={"/list/" + card.id}
                       aria-label={"Manage " + card.content.english}
                     >
                       Open card
@@ -165,7 +163,7 @@ export function VocabularyList() {
                     ? "Archived cards stay here until you restore or delete them."
                     : "Translate a word or phrase, then choose Add to my list. Nothing is saved automatically."}
               </p>
-              <Link className="primary-button" href="/">
+              <Link className="primary-button" to="/">
                 Translate something
               </Link>
             </div>

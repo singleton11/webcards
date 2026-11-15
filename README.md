@@ -2,6 +2,12 @@
 
 A private Russian/English translator with an opt-in personal vocabulary list, daily typed reviews with spaced repetition, and installable home-screen app support. PWA installation provides a standalone window; sign-in, translation, saved vocabulary, and reviews still require the network. No service worker or offline/private-data cache is installed, so app code updates are picked up when you reload or reopen the hosted app. PWA and deployment have shipped as separate follow-up phases.
 
+## Architecture
+
+The browser downloads a static React/Vite frontend. Caddy serves those files and proxies same-origin `/api/*` requests to a loopback-only Node.js API. Authentication, account isolation, PostgreSQL, LiteLLM requests, and review scheduling stay on the server; static files contain no application credentials or vocabulary. Next.js is no longer required at runtime. Moving to this architecture does not require a database migration.
+
+See [deployment](docs/deployment.md) for the Caddy configuration, static file mount, and deployment safety notes.
+
 ## PWA installation
 
 Webcards publishes a web app manifest, including install icons and standalone display mode. After updating an existing deployment, reload the hosted site to receive current installation metadata.
@@ -45,7 +51,7 @@ Existing installations must run `npm run db:migrate` before starting this phase.
 
 ## Requirements
 
-- Node.js 22+, npm, and PostgreSQL 17+ on the local machine.
+- Node.js 22.12+, npm, and PostgreSQL 17+ on the local machine. Caddy 2 is required for production static hosting and browser tests.
 - A PostgreSQL role and database dedicated to Webcards; allow the app role to create its own schema/tables during the first migration. The application connects through a small bounded pool.
 - A dedicated LiteLLM virtual key restricted to `chatgpt-gpt-6-luna`; never reuse a Pi, proxy-master, or other general-purpose credential.
 
@@ -76,7 +82,7 @@ No production host, public signup, reverse proxy, Docker deployment, production 
    ```
 
 7. Set `LITELLM_BASE_URL=http://127.0.0.1:4000/v1`, `LITELLM_MODEL=chatgpt-gpt-6-luna`, and the dedicated `LITELLM_API_KEY` in `.env.local`.
-8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`.
+8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`. Vite serves the frontend on port 3000 and proxies `/api/*` to the API on loopback port 3001. If those ports are occupied, set `WEBCARDS_DEV_PORT` and `PORT` in the environment before starting, and set `BETTER_AUTH_URL` in `.env.local` to the matching frontend origin. In production, `npm run build` creates `dist/frontend` and `dist/server.mjs`; `npm start` runs only the API, so a static host such as Caddy must serve the frontend.
 
 Database creation and the application credential are intentionally operator-managed; the project does not silently alter the shared PostgreSQL or LiteLLM service. `scripts/model-smoke.ts` runs one generic phrase in each direction when explicitly invoked via `npm run model:smoke`. This incurs real model requests; no quality benchmark or permitted-use/privacy review is implied.
 
@@ -86,7 +92,8 @@ The UI discloses that translation text and non-exact quiz answers (plus the rele
 
 - `npm run typecheck` - TypeScript checking.
 - `npm test` - contract, translation/grading model-protocol, FSRS policy, timezone, disposable PostgreSQL migration/authentication/quota, card/review isolation, idempotency, versioning, search, lifecycle, and PWA manifest/icon tests.
-- `npm run test:browser` - authenticated translate/save/manage/review flows, PWA manifest and browser-install eligibility, install controls and platform-specific instructions at 390px and desktop sizes, against a disposable PostgreSQL cluster and a fake local model endpoint. The runner removes its temporary database when it exits. Set `POSTGRES_BIN` if PostgreSQL binaries are not in `/usr/lib/postgresql/17/bin`; install Chromium with `npx playwright install chromium` if needed.
-- `npm run build` - production bundle and generated routes.
+- `npm run test:browser` - builds the frontend and API, then exercises real Caddy routing, authenticated translate/save/manage/review flows, PWA installability, mobile and desktop layouts, against disposable PostgreSQL and a fake model endpoint. The runner removes its temporary database when it exits. Set `POSTGRES_BIN` if PostgreSQL binaries are not in `/usr/lib/postgresql/17/bin`, set `WEBCARDS_CADDY_BIN` if Caddy is not on `PATH`, and install Chromium with `npx playwright install chromium` if needed.
+- `WEBCARDS_E2E_HTTPS=1 npm run test:browser` - run the same browser tests through isolated HTTPS with a temporary, untrusted Caddy CA; no system trust store is modified.
+- `npm run build` - build static frontend files and the standalone API bundle.
 
 Automated tests never use the real LiteLLM endpoint. See [Phase 2 validation](docs/phase-2-validation.md) and [Phase 3 validation](docs/phase-3-validation.md) for earlier evidence. The authorized two-phrase real-route smoke check described in the [Phase 1 validation record](docs/phase-1-validation.md) validated transport/direction only; it is not the independent held-out Russian/English release benchmark described in the product plan. The [personal host deployment](docs/deployment.md) covers the current Caddy and systemd setup; [PWA validation](docs/pwa-validation.md) records installability checks and device-testing limits.

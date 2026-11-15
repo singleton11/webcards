@@ -1,5 +1,5 @@
 [Unit]
-Description=Webcards private translator and daily reviews
+Description=Webcards private translation and review API
 After=network.target
 StartLimitIntervalSec=60
 StartLimitBurst=5
@@ -10,9 +10,9 @@ Type=simple
 WorkingDirectory=/srv/webcards
 Environment=NODE_ENV=production
 Environment=TZ=UTC
-Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=PORT=3001
 EnvironmentFile=/srv/webcards/.env.local
-ExecStart=/usr/bin/node /srv/webcards/node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port 3001
+ExecStart=/usr/bin/node /srv/webcards/dist/server.mjs
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

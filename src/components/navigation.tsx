@@ -1,9 +1,9 @@
 "use client";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link } from "react-router";
+import { useLocation } from "react-router";
 import { useState } from "react";
 export function Navigation() {
-  const path = usePathname();
+  const path = useLocation().pathname;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function logout() {
@@ -24,7 +24,7 @@ export function Navigation() {
   return (
     <>
       <header className="site-header">
-        <Link className="wordmark" href="/" aria-label="Webcards home">
+        <Link className="wordmark" to="/" aria-label="Webcards home">
           <span className="brand-icon" aria-hidden="true">
             w.
           </span>
@@ -38,7 +38,7 @@ export function Navigation() {
           ].map(([href, label]) => (
             <Link
               key={href}
-              href={href}
+              to={href}
               aria-current={path === href ? "page" : undefined}
             >
               {label}

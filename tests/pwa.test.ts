@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import manifest from "../src/app/manifest";
+const manifest = () =>
+  JSON.parse(
+    readFileSync(
+      new URL("../public/manifest.webmanifest", import.meta.url),
+      "utf8",
+    ),
+  ) as {
+    icons: { src: string; sizes: string; type: string; purpose: string }[];
+  };
 
 describe("PWA manifest and icons", () => {
   it("keeps installation identity and navigation within the app", () => {

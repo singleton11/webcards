@@ -1,12 +1,10 @@
-import { ownerSession } from "@/lib/auth";
-import { getConfig } from "@/lib/config";
-import { translationInputSchema, TranslationError } from "@/lib/contracts";
-import { getDb } from "@/lib/db";
-import { translate } from "@/lib/model";
-import { reserveTranslation } from "@/lib/persistence";
-import { TranslationService } from "@/lib/translation-service";
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+import { ownerSession } from "./auth";
+import { getConfig } from "./config";
+import { translationInputSchema, TranslationError } from "./contracts";
+import { getDb } from "./db";
+import { translate } from "./model";
+import { reserveTranslation } from "./persistence";
+import { TranslationService } from "./translation-service";
 const service = new TranslationService({
   reserve: (owner) =>
     reserveTranslation(getDb(), owner, getConfig().TRANSLATIONS_PER_DAY),
@@ -34,7 +32,7 @@ function reply(body: unknown, status = 200) {
     headers: { "Cache-Control": "no-store" },
   });
 }
-export async function POST(request: Request) {
+export async function handleTranslationRequest(request: Request) {
   try {
     const config = getConfig();
     if (
