@@ -83,6 +83,34 @@ for (const viewport of [
 ]) {
   test.describe(viewport.width + "px review", () => {
     test.use({ viewport });
+    test("omits the meaning hint while preserving context and answer reveal", async ({
+      page,
+    }) => {
+      const card = await seed(page);
+      const item = await start(page);
+      const question = page.getByRole("region", { name: "Review question" });
+      await expect(
+        question.getByRole("heading", { name: item.prompt, exact: true }),
+      ).toBeVisible();
+      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(0);
+      await expect(
+        question.getByText(card.content.sense, { exact: true }),
+      ).toHaveCount(0);
+      await expect(
+        question.getByText(card.content.context, { exact: true }),
+      ).toBeVisible();
+      await expect(question.locator(".review-reference")).toHaveCount(0);
+      await page.reload();
+      await expect(page.getByLabel("Your translation")).toBeVisible();
+      await expect(question.getByText("Meaning", { exact: true })).toHaveCount(0);
+      await expect(
+        question.getByText(card.content.sense, { exact: true }),
+      ).toHaveCount(0);
+      await page.getByRole("button", { name: "Show answer" }).click();
+      await expect(question.locator(".review-reference")).toHaveText(
+        item.direction === "ru-en" ? card.content.english : card.content.russian,
+      );
+    });
     test("translate, save, resume feedback, and retire an answered card for today", async ({
       page,
     }) => {
