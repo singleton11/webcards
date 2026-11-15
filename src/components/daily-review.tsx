@@ -155,16 +155,12 @@ export function DailyReview() {
               <h2 lang={current.direction === "ru-en" ? "ru" : "en"}>
                 {current.prompt}
               </h2>
-              <div className="review-context">
-                <span>Meaning</span>
-                <p>{current.sense}</p>
-                {current.context && (
-                  <>
-                    <span>Context</span>
-                    <p>{current.context}</p>
-                  </>
-                )}
-              </div>
+              {current.context && (
+                <div className="review-context">
+                  <span>Context</span>
+                  <p>{current.context}</p>
+                </div>
+              )}
               {!current.grade && (
                 <form
                   onSubmit={(e) => {
