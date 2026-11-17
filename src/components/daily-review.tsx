@@ -106,9 +106,9 @@ export function DailyReview() {
               <p>due cards / {today.dueDirections} directions</p>
             </div>
             <div>
-              <span>Your pace</span>
-              <strong>No limit</strong>
-              <p>one appearance per card each day</p>
+              <span>Total cards</span>
+              <strong>{today.totalCards}</strong>
+              <p>active vocabulary cards</p>
             </div>
           </section>
           <p className="review-caption">
@@ -126,7 +126,7 @@ export function DailyReview() {
               </h2>
               <p>
                 {today.dueCards
-                  ? "Keep going through all available cards, one at a time. No daily limit."
+                  ? "Keep going through all available cards, one at a time."
                   : "Missed cards return tomorrow. Correct answers return when spaced repetition makes them due."}
               </p>
               {today.dueCards > 0 && (

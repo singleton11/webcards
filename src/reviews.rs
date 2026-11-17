@@ -106,6 +106,11 @@ async fn today(app: &App, owner: &str, now: DateTime<Utc>) -> Result<Value> {
     let day = day(now, &tz)?;
     let progress=sqlx::query("SELECT count(DISTINCT card_id)::int AS completed,count(*)::int AS attempts FROM review_events WHERE owner_id=$1 AND (reviewed_at AT TIME ZONE $2)::date=$3::date").bind(owner).bind(&tz).bind(&day).fetch_one(&mut *c).await?;
     let due=sqlx::query(&format!("SELECT count(DISTINCT c.id)::int AS cards,count(*)::int AS directions FROM review_schedules r JOIN cards c ON c.id=r.card_id WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2 AND {RETIRED}")).bind(owner).bind(now).bind(&day).bind(&tz).fetch_one(&mut *c).await?;
+    let total_cards: i32 =
+        sqlx::query_scalar("SELECT count(*)::int FROM cards WHERE owner_id=$1 AND status='active'")
+            .bind(owner)
+            .fetch_one(&mut *c)
+            .await?;
     let active: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM review_sessions WHERE owner_id=$1 AND active")
             .bind(owner)
@@ -120,7 +125,7 @@ async fn today(app: &App, owner: &str, now: DateTime<Utc>) -> Result<Value> {
             session = json!({"id":sid,"remaining":head.try_get::<i32,_>("remaining")?,"item":{"id":i.id,"cardId":i.card,"direction":i.direction,"prompt":prompt,"sense":i.content["sense"],"context":i.content["context"],"answer":i.answer,"reference":if i.grade.is_some()||i.revealed{Some(reference)}else{None},"grade":i.grade,"availableAt":iso(i.available)}})
         }
     }
-    let result = json!({"timezone":tz,"day":day,"completed":progress.try_get::<i32,_>("completed")?,"attempts":progress.try_get::<i32,_>("attempts")?,"dueCards":due.try_get::<i32,_>("cards")?,"dueDirections":due.try_get::<i32,_>("directions")?,"session":session});
+    let result = json!({"timezone":tz,"day":day,"completed":progress.try_get::<i32,_>("completed")?,"attempts":progress.try_get::<i32,_>("attempts")?,"dueCards":due.try_get::<i32,_>("cards")?,"dueDirections":due.try_get::<i32,_>("directions")?,"totalCards":total_cards,"session":session});
     c.commit().await?;
     Ok(result)
 }

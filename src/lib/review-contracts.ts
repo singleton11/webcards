@@ -74,6 +74,7 @@ export type Today = {
   attempts: number;
   dueCards: number;
   dueDirections: number;
+  totalCards: number;
   session: ReviewSession | null;
 };
 export class ReviewError extends Error {

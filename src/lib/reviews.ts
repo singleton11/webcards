@@ -179,6 +179,10 @@ export async function getToday(
       WHERE c.owner_id=$1 AND c.status='active' AND r.due_at<=$2 AND ${notAnsweredToday}`,
       [owner, now, day, p.timezone],
     );
+    const totalCards = await c.query(
+      "SELECT count(*)::int AS total FROM cards WHERE owner_id=$1 AND status='active'",
+      [owner],
+    );
     const active = await c.query(
       "SELECT id FROM review_sessions WHERE owner_id=$1 AND active",
       [owner],
@@ -217,6 +221,7 @@ export async function getToday(
       ...progress.rows[0],
       dueCards: due.rows[0].cards,
       dueDirections: due.rows[0].directions,
+      totalCards: totalCards.rows[0].total,
       session,
     };
   });

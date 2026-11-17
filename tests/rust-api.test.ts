@@ -161,6 +161,66 @@ describe.sequential(
         ).status,
       ).toBe(404);
     });
+    it("matches Node's active-card total independently of due dates, archives and other accounts", async () => {
+      const db = getDb();
+      const second = (
+        await db.query('SELECT id FROM "user" WHERE username=$1', ["second"])
+      ).rows[0].id;
+      expect(await (await request("/api/reviews")).json()).toMatchObject({
+        totalCards: 0,
+      });
+      const ids: string[] = [];
+      try {
+        for (const [index, asOwner] of [owner, owner, second].entries()) {
+          const saved = await saveCard(
+            db,
+            asOwner,
+            saveCardSchema.parse({
+              ...save,
+              requestId: crypto.randomUUID(),
+              content: { ...save.content, english: `count fixture ${index}` },
+            }),
+          );
+          ids.push(saved.cardId);
+        }
+        await request("/api/reviews");
+        await db.query(
+          "UPDATE review_schedules SET due_at=now()+interval '100 days' WHERE card_id=ANY($1::uuid[])",
+          [ids],
+        );
+        const counts = async (totalCards: number) => {
+          const rust = await (await request("/api/reviews")).json();
+          const node = await (await nodeRequest("/api/reviews")).json();
+          expect(rust).toEqual(node);
+          expect(rust).toMatchObject({
+            totalCards,
+            dueCards: 0,
+            dueDirections: 0,
+          });
+        };
+        await counts(2);
+        await changeCard(db, owner, ids[1], {
+          action: "archive",
+          revision: 1,
+          requestId: crypto.randomUUID(),
+        });
+        await counts(1);
+        await changeCard(db, owner, ids[1], {
+          action: "restore",
+          revision: 2,
+          requestId: crypto.randomUUID(),
+        });
+        await counts(2);
+        await changeCard(db, owner, ids[0], {
+          action: "delete",
+          revision: 1,
+          requestId: crypto.randomUUID(),
+        });
+        await counts(1);
+      } finally {
+        await db.query("DELETE FROM cards WHERE id=ANY($1::uuid[])", [ids]);
+      }
+    });
     it("keeps Node and Rust save, edit and receipt replay interoperable", async () => {
       const db = getDb();
       const original = await saveCard(db, owner, saveCardSchema.parse(save));
@@ -324,13 +384,11 @@ describe.sequential(
           })
         ).status,
       ).toBe(404);
-      expect(
-        (
-          await fetch(endpoint + "/api/reviews", {
-            headers: { cookie: secondCookie },
-          })
-        ).status,
-      ).toBe(200);
+      const secondToday = await fetch(endpoint + "/api/reviews", {
+        headers: { cookie: secondCookie },
+      });
+      expect(secondToday.status).toBe(200);
+      expect(await secondToday.json()).toMatchObject({ totalCards: 0 });
     });
     it("lets the Node API continue an FSRS schedule written by Rust", async () => {
       const db = getDb();
@@ -446,6 +504,7 @@ describe.sequential(
         timezone: "Europe/Amsterdam",
         dueCards: 205,
         dueDirections: 410,
+        totalCards: 205,
         session: { remaining: 205 },
       });
       const itemId = today.session.item.id;

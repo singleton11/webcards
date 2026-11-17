@@ -136,6 +136,7 @@ describe("daily reviews", () => {
       attempts: 0,
       dueCards: 1,
       dueDirections: 2,
+      totalCards: 1,
       session: null,
     });
     expect(
@@ -145,6 +146,41 @@ describe("daily reviews", () => {
         ])
       ).rows[0].current_version,
     ).toBe(1);
+  });
+  it("counts all active cards once, including future reviews, without leaking other owners or archived cards", async () => {
+    expect((await getToday(getDb(), owner, now)).totalCards).toBe(0);
+    await save(0);
+    const future = await save(1);
+    const archived = await save(2);
+    await save(0, other);
+    await getToday(getDb(), owner, now);
+    await getDb().query(
+      "UPDATE review_schedules SET due_at=$2 WHERE card_id=$1",
+      [future.cardId, new Date("2031-01-01T00:00:00Z")],
+    );
+    await changeCard(getDb(), owner, archived.cardId, {
+      action: "archive",
+      revision: 1,
+      requestId: crypto.randomUUID(),
+    });
+    expect(await getToday(getDb(), owner, now)).toMatchObject({
+      totalCards: 2,
+      dueCards: 1,
+      dueDirections: 2,
+    });
+    expect((await getToday(getDb(), other, now)).totalCards).toBe(1);
+    await changeCard(getDb(), owner, archived.cardId, {
+      action: "restore",
+      revision: 2,
+      requestId: crypto.randomUUID(),
+    });
+    expect((await getToday(getDb(), owner, now)).totalCards).toBe(3);
+    await changeCard(getDb(), owner, future.cardId, {
+      action: "delete",
+      revision: 1,
+      requestId: crypto.randomUUID(),
+    });
+    expect((await getToday(getDb(), owner, now)).totalCards).toBe(2);
   });
   it("freezes and resumes all eligible cards beyond the old daily, session and scan limits", async () => {
     for (let i = 0; i < 205; i++) await save(i);
@@ -162,6 +198,7 @@ describe("daily reviews", () => {
     ).rows;
     expect(items).toHaveLength(205);
     expect(new Set(items.map((i) => i.card_id)).size).toBe(205);
+    expect(first.totalCards).toBe(205);
     expect(first.session?.item?.reference).toBeNull();
     expect(resumed.session?.item?.id).toBe(first.session?.item?.id);
   });
@@ -259,6 +296,7 @@ describe("daily reviews", () => {
       attempts: 1,
       dueCards: 0,
       dueDirections: 0,
+      totalCards: 1,
       session: null,
     });
     const tomorrow = new Date("2030-01-02T00:00:00Z");
@@ -595,6 +633,7 @@ describe("daily reviews", () => {
     ).rejects.toMatchObject({ code: "not_found" });
     expect(await getToday(getDb(), other, now)).toMatchObject({
       dueCards: 0,
+      totalCards: 0,
       session: null,
     });
   });

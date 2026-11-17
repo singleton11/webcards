@@ -86,6 +86,53 @@ for (const viewport of [
 ]) {
   test.describe(viewport.width + "px review", () => {
     test.use({ viewport });
+    test("shows the active-card total instead of a fixed pace and updates it after vocabulary changes", async ({
+      page,
+    }) => {
+      const total = page
+        .getByText("Total cards", { exact: true })
+        .locator("..")
+        .locator("strong");
+      await page.goto("/today");
+      await expect(total).toHaveText("0");
+      await expect(page.getByText(/no (daily )?limit/i)).toHaveCount(0);
+      const first = await seed(page);
+      const second = await seed(page, 1);
+      await page.reload();
+      await expect(total).toHaveText("2");
+      for (const [action, revision, expected] of [
+        ["archive", 1, "1"],
+        ["restore", 2, "2"],
+        ["delete", 3, "1"],
+      ] as const) {
+        const changed = await page.request.post("/api/cards/" + second.id, {
+          headers: { origin },
+          data: { action, revision, requestId: crypto.randomUUID() },
+        });
+        expect(changed.ok()).toBe(true);
+        await page.reload();
+        await expect(total).toHaveText(expected);
+      }
+      expect(
+        (
+          await page.request.post("/api/cards/" + first.id, {
+            headers: { origin },
+            data: {
+              action: "delete",
+              revision: 1,
+              requestId: crypto.randomUUID(),
+            },
+          })
+        ).ok(),
+      ).toBe(true);
+      await page.reload();
+      await expect(total).toHaveText("0");
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    });
     test("omits the meaning hint while preserving context and answer reveal", async ({
       page,
     }) => {
@@ -141,6 +188,12 @@ for (const viewport of [
       expect(
         (await (await page.request.get("/api/reviews")).json()).attempts,
       ).toBe(0);
+      const total = page
+        .getByText("Total cards", { exact: true })
+        .locator("..")
+        .locator("strong");
+      await expect(total).toHaveText("1");
+      await expect(page.getByText(/no (daily )?limit/i)).toHaveCount(0);
       expect(
         await page.evaluate(
           () => document.documentElement.scrollWidth <= innerWidth,
@@ -167,9 +220,11 @@ for (const viewport of [
         attempts: 1,
         dueCards: 0,
         dueDirections: 0,
+        totalCards: 1,
         session: null,
       });
       await page.reload();
+      await expect(total).toHaveText("1");
       await expect(
         page.getByRole("heading", { name: "You're all caught up." }),
       ).toBeVisible();
