@@ -11,9 +11,9 @@ const configSchema = z.object({
     .min(32)
     .refine((value) => !value.startsWith("replace-")),
   OWNER_USERNAME: z.string().regex(/^[a-z0-9_]{3,30}$/),
-  LITELLM_BASE_URL: z.url().default("http://127.0.0.1:4000/v1"),
-  LITELLM_API_KEY: z.string().default(""),
-  LITELLM_MODEL: z.literal("chatgpt-gpt-6-luna").default("chatgpt-gpt-6-luna"),
+  MODEL_BASE_URL: z.url().default("http://127.0.0.1:18317/v1"),
+  MODEL_API_KEY: z.string().default(""),
+  MODEL_NAME: z.literal("gpt-6-luna").default("gpt-6-luna"),
   TRANSLATIONS_PER_DAY: z.coerce.number().int().min(1).max(1000).default(100),
   GRADINGS_PER_DAY: z.coerce.number().int().min(2).max(1000).default(100),
 });

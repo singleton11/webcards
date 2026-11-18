@@ -18,9 +18,9 @@ for (const input of [
   const { result, usage } = await translate(
     { ...input, requestId: crypto.randomUUID() },
     {
-      baseURL: config.LITELLM_BASE_URL,
-      apiKey: config.LITELLM_API_KEY,
-      model: config.LITELLM_MODEL,
+      baseURL: config.MODEL_BASE_URL,
+      apiKey: config.MODEL_API_KEY,
+      model: config.MODEL_NAME,
     },
   );
   console.log(

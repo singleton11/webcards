@@ -58,9 +58,9 @@ export async function handleReviewRequest(request: Request) {
         command.itemId,
         command.answer,
         {
-          baseURL: config.LITELLM_BASE_URL,
-          apiKey: config.LITELLM_API_KEY,
-          model: config.LITELLM_MODEL,
+          baseURL: config.MODEL_BASE_URL,
+          apiKey: config.MODEL_API_KEY,
+          model: config.MODEL_NAME,
         },
         config.GRADINGS_PER_DAY,
       );

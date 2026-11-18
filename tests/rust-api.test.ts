@@ -66,6 +66,10 @@ beforeAll(async () => {
     let text = "";
     for await (const chunk of req) text += chunk;
     const payload = JSON.parse(text);
+    if (req.url !== "/v1/responses" || req.headers.authorization !== "Bearer fixture-only" || payload.model !== "gpt-6-luna") {
+      res.writeHead(400).end();
+      return;
+    }
     await delay(250);
     const body =
       payload.text.format.name === "grading"
@@ -93,7 +97,7 @@ beforeAll(async () => {
   });
   await new Promise<void>((resolve) => model.listen(0, "127.0.0.1", resolve));
   const port = (model.address() as { port: number }).port;
-  process.env.LITELLM_BASE_URL = `http://127.0.0.1:${port}/v1`;
+  process.env.MODEL_BASE_URL = `http://127.0.0.1:${port}/v1`;
   const db = getDb();
   await migrate(db);
   owner = await createOwner(db, "owner", password);
@@ -233,6 +237,7 @@ describe.sequential(
       });
       const second = {
         ...save,
+        model: "gpt-6-luna",
         requestId: crypto.randomUUID(),
         content: {
           ...save.content,
@@ -299,7 +304,9 @@ describe.sequential(
       expect(a.status).toBe(200);
       expect(b.status).toBe(200);
       expect(conflict.status).toBe(409);
-      expect(await a.json()).toEqual(await b.json());
+      const translation = await a.json();
+      expect(translation.model).toBe("gpt-6-luna");
+      expect(translation).toEqual(await b.json());
       expect(calls - previous).toBe(1);
       const replay = await request("/api/translate", post(input));
       expect(replay.status).toBe(200);

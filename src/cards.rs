@@ -285,7 +285,7 @@ pub(crate) async fn handler(
         let mut save: Save = serde_json::from_value(raw).map_err(|_| validation(VALIDATION))?;
         save.content.validate()?;
         if !matches!(save.source.as_str(), "ru" | "en")
-            || save.model != model::MODEL
+            || !matches!(save.model.as_str(), model::MODEL | model::LEGACY_MODEL)
             || save.prompt_version.is_empty()
             || save.prompt_version.len() > 80
             || !save

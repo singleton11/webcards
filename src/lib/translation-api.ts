@@ -11,14 +11,14 @@ const service = new TranslationService({
   run: async (input) => {
     const config = getConfig();
     const { result, usage } = await translate(input, {
-      baseURL: config.LITELLM_BASE_URL,
-      apiKey: config.LITELLM_API_KEY,
-      model: config.LITELLM_MODEL,
+      baseURL: config.MODEL_BASE_URL,
+      apiKey: config.MODEL_API_KEY,
+      model: config.MODEL_NAME,
     });
     console.info(
       JSON.stringify({
         event: "translation",
-        model: config.LITELLM_MODEL,
+        model: config.MODEL_NAME,
         promptVersion: result.promptVersion,
         ...usage,
       }),
@@ -78,7 +78,7 @@ export async function handleTranslationRequest(request: Request) {
         },
         400,
       );
-    if (!config.LITELLM_API_KEY)
+    if (!config.MODEL_API_KEY)
       return reply(
         {
           error:
