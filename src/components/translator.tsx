@@ -290,7 +290,7 @@ export function Translator() {
         <span aria-hidden="true">↗</span>
         <p>
           Only when you press Translate, your text and context go through
-          LiteLLM to the configured OpenAI upstream. Provider retention is not
+          the configured proxy to OpenAI. Provider retention is not
           yet verified: avoid sensitive text. Only cards you explicitly add are
           kept in My list; translations are not saved automatically. Translation
           needs an internet connection.

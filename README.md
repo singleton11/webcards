@@ -4,7 +4,7 @@ A private Russian/English translator with an opt-in personal vocabulary list, da
 
 ## Architecture
 
-The browser downloads a static React/Vite frontend. Caddy serves those files and proxies same-origin `/api/*` requests to a loopback-only Rust API. Authentication, account isolation, PostgreSQL, LiteLLM requests, and review scheduling stay on the server; static files contain no application credentials or vocabulary. The Rust binary preserves the existing PostgreSQL schema and Better Auth credentials/sessions; no database migration is required. Node.js is used for frontend builds, tests, and existing administrative scripts, not to run the production API.
+The browser downloads a static React/Vite frontend. Caddy serves those files and proxies same-origin `/api/*` requests to a loopback-only Rust API. Authentication, account isolation, PostgreSQL, model requests, and review scheduling stay on the server; static files contain no application credentials or vocabulary. The Rust binary preserves the existing PostgreSQL schema and Better Auth credentials/sessions; no database migration is required. Node.js is used for frontend builds, tests, and existing administrative scripts, not to run the production API.
 
 See [Rust API migration](docs/rust-api.md) for compatibility, validation, and deployment boundaries.
 
@@ -24,7 +24,7 @@ Webcards publishes a web app manifest, including install icons and standalone di
 - Responsive private-workspace translator with separate credentials, vocabulary, and review progress for each locally provisioned account. Russian-to-English and English-to-Russian directions, optional context, ambiguity questions, explicit-submit behavior, and retained input on errors.
 - Private username/password login compatible with the existing Better Auth password hashes and signed sessions; public signup is disabled. Accounts are provisioned only through a trusted local CLI operation using Better Auth's password implementation. Rust verifies the hashes and stores sessions in PostgreSQL.
 - PostgreSQL-backed per-account preferences and atomic per-account/day translation-request limits. The legacy daily-goal preference is retained in storage but no longer limits or appears in the quiz. Better Auth schema updates and versioned, checksum-verified application migrations are separate.
-- Server-only LiteLLM Responses adapter pinned to `chatgpt-gpt-6-luna`, with strict request/result validation, no provider-side response storage, a bounded SSE parser, one bounded retry, a 20-second overall deadline, and a two-request concurrency limit.
+- Server-only Responses adapter for CLIProxyAPI pinned to `gpt-6-luna`, with strict request/result validation, no provider-side response storage, a bounded SSE parser, one bounded retry, a 20-second overall deadline, and a two-request concurrency limit.
 - Translation alone never creates a card or permanent translation history. A bounded in-process, 60-second translation request-ID replay window prevents retries from calling the model twice while the single local process is running.
 - **Today** shows distinct cards reviewed, eligible due cards and directions, and the server-configured day/timezone (UTC in the current deployment). There is no daily quiz length or new-card cap. There are no reminders or offline inference.
 
@@ -47,7 +47,7 @@ Existing local installations must run `npm run db:migrate` before starting this 
 - **Type an answer** in the prompt's opposite language. Only Unicode NFC and whitespace are normalized for automatic exact matches; case, punctuation, accents, morphology, and meaning are not silently erased. Non-exact answers are checked against one saved meaning, context, and direction using the configured Luna route. Model grades cannot supply a reference answer or update schedules.
 - **Uncertain judgments**, typos, timeouts, malformed model results, and outages never silently count as wrong. Show the saved reference and let the learner choose recalled/review tomorrow, skip without a rating, or retry the same answer. A reveal counts as Again only when the learner explicitly continues with that result; self-assessment is recorded separately from the original verdict.
 - **Transactional finalization** updates the attempt, answer, grade, and only its directional schedule together. Retried finalization returns the same result; stale content, stale schedules, or another tab cannot apply a second review. Edits preserve earlier review history and pause stale queued questions; use the card's explicit Reset learning control when its meaning changes. Reset clears both directional scheduler states but retains prior attempts.
-- The grading budget defaults to at most 100 reserved upstream calls per owner per UTC day, configured through `GRADINGS_PER_DAY` (one non-exact grade reserves up to two bounded calls). Exact matches make no model request. **Review checks send the typed answer, saved meaning, and context to LiteLLM; provider retention remains unverified.**
+- The grading budget defaults to at most 100 reserved upstream calls per owner per UTC day, configured through `GRADINGS_PER_DAY` (one non-exact grade reserves up to two bounded calls). Exact matches make no model request. **Review checks send the typed answer, saved meaning, and context to the configured model upstream; provider retention remains unverified.**
 
 Existing installations must run `npm run db:migrate` before starting this phase. Migration `0003_daily_review` adds per-direction schedules, resumable sessions, attempts, introductions, and grading budgets. It does not modify existing card content, owner credentials, or preferences. The unlimited-queue/day-only follow-up requires no new migration or learning reset: existing history is preserved, old same-day queued repeats are discarded on resume, and future finalized answers use the versioned new policy. See [Quiz policy validation](docs/quiz-policy-validation.md).
 
@@ -55,7 +55,7 @@ Existing installations must run `npm run db:migrate` before starting this phase.
 
 - Rust 1.94.1, Cargo, Node.js 22.12+, npm, and PostgreSQL 17+ for development and validation. Caddy 2 is required for production static hosting and browser tests. The production API itself runs as the compiled Rust binary without Node.js.
 - A PostgreSQL role and database dedicated to Webcards; allow the app role to create its own schema/tables during the first migration. The application connects through a small bounded pool.
-- A dedicated LiteLLM virtual key restricted to `chatgpt-gpt-6-luna`; never reuse a Pi, proxy-master, or other general-purpose credential.
+- A dedicated Webcards API key in CLIProxyAPI; never reuse another application's key or OAuth credentials. Keep the proxy's host port bound to loopback.
 
 No production host, public signup, reverse proxy, Docker deployment, production database, browser-side model credential, or live agent/service integration is configured by these local setup steps.
 
@@ -83,12 +83,12 @@ No production host, public signup, reverse proxy, Docker deployment, production 
    unset WEBCARDS_PASSWORD
    ```
 
-7. Set `LITELLM_BASE_URL=http://127.0.0.1:4000/v1`, `LITELLM_MODEL=chatgpt-gpt-6-luna`, and the dedicated `LITELLM_API_KEY` in `.env.local`.
+7. Set `MODEL_BASE_URL=http://127.0.0.1:18317/v1`, `MODEL_NAME=gpt-6-luna`, and the dedicated `MODEL_API_KEY` in `.env.local`.
 8. Start the local-only app: `npm run dev`; open `http://127.0.0.1:3000`. Vite serves the frontend on port 3000 and proxies `/api/*` to the API on loopback port 3001. If those ports are occupied, set `WEBCARDS_DEV_PORT` and `PORT` in the environment before starting, and set `BETTER_AUTH_URL` in `.env.local` to the matching frontend origin. In production, `npm run build` creates `dist/frontend` and `dist/webcards-api`; `npm start` runs only the Rust API, so a static host such as Caddy must serve the frontend.
 
-Database creation and the application credential are intentionally operator-managed; the project does not silently alter the shared PostgreSQL or LiteLLM service. `scripts/model-smoke.ts` runs one generic phrase in each direction when explicitly invoked via `npm run model:smoke`. This incurs real model requests; no quality benchmark or permitted-use/privacy review is implied.
+Database creation and the application credential are intentionally operator-managed; the project does not silently alter the shared PostgreSQL or CLIProxyAPI service. `scripts/model-smoke.ts` runs one generic phrase in each direction when explicitly invoked via `npm run model:smoke`. This incurs real model requests; no quality benchmark or permitted-use/privacy review is implied.
 
-The UI discloses that translation text and non-exact quiz answers (plus the relevant saved meaning and context) go through the configured LiteLLM upstream. Do not submit sensitive text until the upstream identity, subscription terms, retention policy, rate limits, and cost implications have been reviewed. Translation works online only. Keep the local listener bound to loopback; a publicly reachable instance is not a personal-use deployment plan.
+The UI discloses that translation text and non-exact quiz answers (plus the relevant saved meaning and context) go through the configured model proxy to OpenAI. Do not submit sensitive text until the upstream identity, subscription terms, retention policy, rate limits, and cost implications have been reviewed. Translation works online only. Keep the local listener bound to loopback; a publicly reachable instance is not a personal-use deployment plan.
 
 ## Verification
 
@@ -99,4 +99,4 @@ The UI discloses that translation text and non-exact quiz answers (plus the rele
 - `WEBCARDS_E2E_HTTPS=1 npm run test:browser` - run the same browser tests through isolated HTTPS with a temporary, untrusted Caddy CA; no system trust store is modified.
 - `npm run build` - build static frontend files and the standalone Rust API binary.
 
-Automated tests never use the real LiteLLM endpoint. See [Phase 2 validation](docs/phase-2-validation.md) and [Phase 3 validation](docs/phase-3-validation.md) for earlier evidence. The authorized two-phrase real-route smoke check described in the [Phase 1 validation record](docs/phase-1-validation.md) validated transport/direction only; it is not the independent held-out Russian/English release benchmark described in the product plan. The [personal host deployment](docs/deployment.md) covers the current Caddy and systemd setup; [PWA validation](docs/pwa-validation.md) records installability checks and device-testing limits.
+Automated tests never use the real model endpoint. See [Phase 2 validation](docs/phase-2-validation.md) and [Phase 3 validation](docs/phase-3-validation.md) for earlier evidence. The authorized two-phrase real-route smoke check described in the [Phase 1 validation record](docs/phase-1-validation.md) validated transport/direction only; it is not the independent held-out Russian/English release benchmark described in the product plan. The [personal host deployment](docs/deployment.md) covers the current Caddy and systemd setup; [PWA validation](docs/pwa-validation.md) records installability checks and device-testing limits.

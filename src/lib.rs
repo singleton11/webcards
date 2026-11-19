@@ -103,13 +103,13 @@ impl App {
         if secret.encode_utf16().count() < 32 || secret.starts_with("replace-") {
             return Err("Invalid BETTER_AUTH_SECRET.".into());
         }
-        if env_default("LITELLM_MODEL", model::MODEL) != model::MODEL {
-            return Err("Invalid LITELLM_MODEL.".into());
+        if env_default("MODEL_NAME", model::MODEL) != model::MODEL {
+            return Err("Invalid MODEL_NAME.".into());
         }
-        let model_url = env_default("LITELLM_BASE_URL", "http://127.0.0.1:4000/v1");
-        let parsed = reqwest::Url::parse(&model_url).map_err(|_| "Invalid LITELLM_BASE_URL")?;
+        let model_url = env_default("MODEL_BASE_URL", "http://127.0.0.1:18317/v1");
+        let parsed = reqwest::Url::parse(&model_url).map_err(|_| "Invalid MODEL_BASE_URL")?;
         if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-            return Err("Invalid LITELLM_BASE_URL.".into());
+            return Err("Invalid MODEL_BASE_URL.".into());
         }
         let db = PgPoolOptions::new()
             .max_connections(5)
@@ -138,7 +138,7 @@ impl App {
             secret: Arc::new(Zeroizing::new(secret)),
             config: Config {
                 model_url,
-                model_key: Arc::new(Zeroizing::new(env_default("LITELLM_API_KEY", ""))),
+                model_key: Arc::new(Zeroizing::new(env_default("MODEL_API_KEY", ""))),
                 translations_per_day: env_num("TRANSLATIONS_PER_DAY", 100, 1, 1000)?,
                 gradings_per_day: env_num("GRADINGS_PER_DAY", 100, 2, 1000)?,
             },

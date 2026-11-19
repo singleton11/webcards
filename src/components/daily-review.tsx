@@ -216,7 +216,7 @@ export function DailyReview() {
                   </div>
                   <p className="review-privacy">
                     Non-exact answers and this card's context are sent to the
-                    configured LiteLLM provider for checking. Provider retention
+                    configured model provider for checking. Provider retention
                     remains unverified.
                   </p>
                 </form>

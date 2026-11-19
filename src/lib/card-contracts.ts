@@ -31,7 +31,7 @@ export const saveCardSchema = z
     requestId: z.uuid(),
     content: cardContentSchema,
     source: z.enum(["ru", "en"]),
-    model: z.literal("chatgpt-gpt-6-luna"),
+    model: z.enum(["gpt-6-luna", "chatgpt-gpt-6-luna"]),
     promptVersion: z
       .string()
       .min(1)

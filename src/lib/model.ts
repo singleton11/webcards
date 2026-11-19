@@ -131,6 +131,7 @@ export async function translate(
             model: config.model,
             stream: true,
             store: false,
+            reasoning: { effort: "low" },
             max_output_tokens: 1200,
             input: [
               { role: "system", content: TRANSLATION_PROMPT },

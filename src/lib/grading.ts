@@ -52,6 +52,7 @@ export async function gradeAnswer(
             model: config.model,
             stream: true,
             store: false,
+            reasoning: { effort: "low" },
             max_output_tokens: 600,
             input: [
               { role: "system", content: GRADING_PROMPT },

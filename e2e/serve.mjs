@@ -187,9 +187,9 @@ try {
     BETTER_AUTH_URL: origin,
     BETTER_AUTH_SECRET: "isolated-test-secret-not-for-deployment-1234",
     OWNER_USERNAME: "owner",
-    LITELLM_API_KEY: "fixture-only",
-    LITELLM_MODEL: "chatgpt-gpt-6-luna",
-    LITELLM_BASE_URL: "http://127.0.0.1:" + modelPort + "/v1",
+    MODEL_API_KEY: "fixture-only",
+    MODEL_NAME: "gpt-6-luna",
+    MODEL_BASE_URL: "http://127.0.0.1:" + modelPort + "/v1",
     TRANSLATIONS_PER_DAY: "100",
   };
   execFileSync("./node_modules/.bin/tsx", ["e2e/setup-db.ts"], {
