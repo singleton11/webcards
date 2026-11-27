@@ -1,4 +1,5 @@
 "use client";
+import { CardReviewStats } from "@/components/card-review-stats";
 import { Link } from "react-router";
 import { useRef, useState } from "react";
 import type { Card, CardContent, CardResult } from "@/lib/card-contracts";
@@ -243,6 +244,7 @@ export function CardDetails({ initialCard }: { initialCard: Card }) {
                   </>
                 )}
               </dl>
+              <CardReviewStats stats={card.reviewStats} />
               <div className="card-actions">
                 <button
                   type="button"

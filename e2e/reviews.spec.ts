@@ -183,6 +183,9 @@ for (const viewport of [
       );
       const card = (await (await page.request.get("/api/cards")).json())
         .cards[0];
+      await page.goto("/list");
+      await expect(page.getByText("No reviews yet")).toBeVisible();
+      await expect(page.getByText("Due now")).toBeVisible();
       const first = await start(page);
       await checkExact(page, card);
       expect(
@@ -250,6 +253,17 @@ for (const viewport of [
         path: "test-results/review-done-" + viewport.width + ".png",
         fullPage: true,
       });
+      await page.goto("/list");
+      await expect(page.getByText("100% (1 of 1)")).toBeVisible();
+      await expect(page.locator(".card-review-stats time")).toBeVisible();
+      await page
+        .getByRole("link", { name: "Manage " + card.content.english })
+        .click();
+      await expect(page.getByText("100% (1 of 1)")).toBeVisible();
+      await expect(page.locator(".card-review-stats time")).toBeVisible();
+      await page.getByRole("button", { name: "Archive card" }).click();
+      await expect(page.getByText("Paused")).toBeVisible();
+      await expect(page.getByText("100% (1 of 1)")).toBeVisible();
     });
   });
 }
@@ -310,6 +324,8 @@ test("a missed card finishes for today with no same-day repeat", async ({
     dueCards: 0,
     session: null,
   });
+  await page.goto("/list");
+  await expect(page.getByText("0% (0 of 1)")).toBeVisible();
 });
 test("uncertain judgments and harmless typos require a recorded self-assessment", async ({
   page,

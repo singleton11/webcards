@@ -84,6 +84,11 @@ export type Card = {
   promptVersion: string;
   createdAt: string;
   updatedAt: string;
+  reviewStats: {
+    correct: number;
+    attempts: number;
+    nextReviewAt: string | null;
+  };
 };
 export type CardOutcome =
   | "created"

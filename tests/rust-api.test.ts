@@ -369,6 +369,21 @@ describe.sequential(
       );
       expect(events.rowCount).toBe(1);
       expect(events.rows[0].after_state.state).toBe(2);
+      const cardPath = "/api/cards/" + question.cardId;
+      const { card } = await (await request(cardPath)).json();
+      const { rows: [schedule] } = await getDb().query(
+        `SELECT ((e.reviewed_at AT TIME ZONE p.timezone)::date + 1)::timestamp
+          AT TIME ZONE p.timezone AS tomorrow
+          FROM review_events e JOIN owner_preferences p ON p.owner_id=e.owner_id
+          WHERE e.attempt_id=$1`,
+        [question.id],
+      );
+      expect(card.reviewStats).toEqual({
+        correct: 1,
+        attempts: 1,
+        nextReviewAt: schedule.tomorrow.toISOString(),
+      });
+      expect((await (await nodeRequest(cardPath)).json()).card).toEqual(card);
       reviewed = {
         cardId: question.cardId,
         direction: question.direction,

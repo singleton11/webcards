@@ -26,12 +26,28 @@ export function cardFingerprint(content: CardContent) {
     ),
   );
 }
+// Missing schedules are due from creation. A completed review retires both
+// directions until the next day in the owner's timezone.
 const selection = `SELECT c.id, c.status, c.revision, c.current_version AS version,
   c.original_source AS source, c.model, c.prompt_version AS "promptVersion",
   c.created_at AS "createdAt", c.updated_at AS "updatedAt",
   json_build_object('russian',v.russian,'english',v.english,'sense',v.sense,
-    'context',v.context,'note',v.note) AS content
-  FROM cards c JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version`;
+    'context',v.context,'note',v.note) AS content,
+  (SELECT json_build_object(
+    'attempts', count(*),
+    'correct', count(*) FILTER (WHERE e.rating='good'),
+    'nextReviewAt', CASE WHEN c.status='active' THEN to_char(
+      greatest(
+        (SELECT CASE WHEN count(*)=2 THEN min(r.due_at)
+                     ELSE least(c.created_at,min(r.due_at)) END
+         FROM review_schedules r WHERE r.card_id=c.id),
+        ((max(e.reviewed_at) AT TIME ZONE coalesce(p.timezone,'UTC'))::date + 1)::timestamp
+          AT TIME ZONE coalesce(p.timezone,'UTC')
+      ) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+    ) END
+  ) FROM review_events e WHERE e.card_id=c.id AND e.owner_id=c.owner_id) AS "reviewStats"
+  FROM cards c JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version
+  LEFT JOIN owner_preferences p ON p.owner_id=c.owner_id`;
 function toCard(row: Record<string, unknown>): Card {
   return {
     ...row,
