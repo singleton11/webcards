@@ -1231,3 +1231,23 @@ textarea:focus {
     scroll-behavior: auto !important;
   }
 }
+
+.card-review-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  margin: 0 0 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.card-review-stats dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.card-review-stats dd {
+  margin: 4px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+}

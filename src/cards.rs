@@ -106,8 +106,29 @@ pub(crate) struct Card {
     pub prompt_version: String,
     pub created_at: String,
     pub updated_at: String,
+    pub review_stats: Value,
 }
-const SELECT: &str = "SELECT c.id,c.status,c.revision,c.current_version AS version,c.original_source AS source,c.model,c.prompt_version,c.created_at,c.updated_at,json_build_object('russian',v.russian,'english',v.english,'sense',v.sense,'context',v.context,'note',v.note) AS content FROM cards c JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version";
+// Missing schedules are due from creation. A completed review retires both
+// directions until the next day in the owner's timezone.
+const SELECT: &str = r#"SELECT c.id,c.status,c.revision,c.current_version AS version,
+  c.original_source AS source,c.model,c.prompt_version,c.created_at,c.updated_at,
+  json_build_object('russian',v.russian,'english',v.english,'sense',v.sense,
+    'context',v.context,'note',v.note) AS content,
+  (SELECT json_build_object(
+    'attempts', count(*),
+    'correct', count(*) FILTER (WHERE e.rating='good'),
+    'nextReviewAt', CASE WHEN c.status='active' THEN to_char(
+      greatest(
+        (SELECT CASE WHEN count(*)=2 THEN min(r.due_at)
+                     ELSE least(c.created_at,min(r.due_at)) END
+         FROM review_schedules r WHERE r.card_id=c.id),
+        ((max(e.reviewed_at) AT TIME ZONE coalesce(p.timezone,'UTC'))::date + 1)::timestamp
+          AT TIME ZONE coalesce(p.timezone,'UTC')
+      ) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'
+    ) END
+  ) FROM review_events e WHERE e.card_id=c.id AND e.owner_id=c.owner_id) AS review_stats
+  FROM cards c JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version
+  LEFT JOIN owner_preferences p ON p.owner_id=c.owner_id"#;
 const VALIDATION: &str =
     "Check both language sides, meaning and context, or reload the card and try again.";
 pub(crate) fn normalize(text: &str) -> String {
@@ -165,6 +186,7 @@ fn from_row(r: sqlx::postgres::PgRow) -> Result<Card> {
         prompt_version: r.try_get("prompt_version")?,
         created_at: iso(r.try_get("created_at")?),
         updated_at: iso(r.try_get("updated_at")?),
+        review_stats: r.try_get("review_stats")?,
     })
 }
 async fn get(c: &mut PgConnection, owner: &str, id: Uuid) -> Result<Option<Card>> {

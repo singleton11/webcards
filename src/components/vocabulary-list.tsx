@@ -1,4 +1,5 @@
 "use client";
+import { CardReviewStats } from "@/components/card-review-stats";
 import { Link } from "react-router";
 import { useEffect, useState } from "react";
 import { cardRequest } from "@/lib/card-client";
@@ -131,6 +132,7 @@ export function VocabularyList() {
                   {card.content.context && (
                     <p className="card-context">{card.content.context}</p>
                   )}
+                  <CardReviewStats stats={card.reviewStats} />
                   <div className="vocabulary-meta">
                     <span>
                       Version {card.version}
