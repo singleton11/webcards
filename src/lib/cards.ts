@@ -167,18 +167,20 @@ async function transact(
       };
     } else {
       result = await run(client);
-      await client.query(
-        `INSERT INTO card_receipts (owner_id,request_id,payload_hash,card_id,outcome,revision)
-        VALUES ($1,$2,$3,$4,$5,$6)`,
-        [
-          owner,
-          requestId,
-          payloadHash,
-          result.id,
-          result.outcome,
-          result.revision,
-        ],
-      );
+      if (result.outcome !== "similar") {
+        await client.query(
+          `INSERT INTO card_receipts (owner_id,request_id,payload_hash,card_id,outcome,revision)
+          VALUES ($1,$2,$3,$4,$5,$6)`,
+          [
+            owner,
+            requestId,
+            payloadHash,
+            result.id,
+            result.outcome,
+            result.revision,
+          ],
+        );
+      }
     }
     const card = await getCard(client, owner, result.id);
     await client.query("COMMIT");
@@ -207,6 +209,20 @@ export function saveCard(db: Pool, owner: string, input: SaveCardInput) {
       if (existing) {
         const card = (await getCard(client, owner, existing))!;
         return { id: existing, outcome: "duplicate", revision: card.revision };
+      }
+      if (input.similarPolicy === "review") {
+        const match = await client.query<{ id: string; revision: number }>(
+          `SELECT c.id, c.revision FROM cards c
+          JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version
+          WHERE c.owner_id=$1 AND c.status='active' AND v.russian=$2 AND v.english=$3
+          ORDER BY c.created_at DESC,c.id LIMIT 1`,
+          [
+            owner,
+            normalizeCardText(input.content.russian),
+            normalizeCardText(input.content.english),
+          ],
+        );
+        if (match.rows[0]) return { ...match.rows[0], outcome: "similar" };
       }
       const id = randomUUID();
       await client.query(

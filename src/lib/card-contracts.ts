@@ -37,6 +37,7 @@ export const saveCardSchema = z
       .min(1)
       .max(80)
       .regex(/^[a-zA-Z0-9._-]+$/),
+    similarPolicy: z.enum(["review", "keep"]).optional(),
   })
   .strict();
 export type SaveCardInput = z.infer<typeof saveCardSchema>;
@@ -93,6 +94,7 @@ export type Card = {
 export type CardOutcome =
   | "created"
   | "duplicate"
+  | "similar"
   | "updated"
   | "unchanged"
   | "archived"

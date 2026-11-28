@@ -15,6 +15,12 @@ pub(crate) struct Content {
     pub context: String,
     pub note: String,
 }
+#[derive(Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+enum SimilarPolicy {
+    Review,
+    Keep,
+}
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Save {
@@ -23,6 +29,7 @@ struct Save {
     source: String,
     model: String,
     prompt_version: String,
+    similar_policy: Option<SimilarPolicy>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "action", rename_all = "lowercase", deny_unknown_fields)]
@@ -355,7 +362,9 @@ pub(crate) async fn handler(
             )
             .await?
         };
-        sqlx::query("INSERT INTO card_receipts(owner_id,request_id,payload_hash,card_id,outcome,revision) VALUES($1,$2,$3,$4,$5,$6)").bind(&owner).bind(request_id).bind(hash).bind(result.0).bind(&result.1).bind(result.2).execute(&mut *tx).await?;
+        if result.1 != "similar" {
+            sqlx::query("INSERT INTO card_receipts(owner_id,request_id,payload_hash,card_id,outcome,revision) VALUES($1,$2,$3,$4,$5,$6)").bind(&owner).bind(request_id).bind(hash).bind(result.0).bind(&result.1).bind(result.2).execute(&mut *tx).await?;
+        }
         result
     };
     let card = get(&mut tx, &owner, card_id).await?;
@@ -373,8 +382,13 @@ fn s(v: impl Serialize) -> String {
     serde_json::to_string(&v).expect("JSON serialization")
 }
 fn legacy_save(v: &Save) -> String {
+    let policy = v
+        .similar_policy
+        .as_ref()
+        .map(|policy| format!(",\"similarPolicy\":{}", s(policy)))
+        .unwrap_or_default();
     format!(
-        "{{\"action\":\"save\",\"requestId\":{},\"content\":{},\"source\":{},\"model\":{},\"promptVersion\":{}}}",
+        "{{\"action\":\"save\",\"requestId\":{},\"content\":{},\"source\":{},\"model\":{},\"promptVersion\":{}{policy}}}",
         s(v.request_id),
         content_json(&v.content),
         s(&v.source),
@@ -409,6 +423,22 @@ async fn save_card(c: &mut PgConnection, owner: &str, save: Save) -> Result<(Uui
     if let Some(id) = duplicate(c, owner, &fp, None).await? {
         let card = get(c, owner, id).await?.ok_or_else(internal)?;
         return Ok((id, "duplicate".into(), card.revision));
+    }
+    if save.similar_policy == Some(SimilarPolicy::Review) {
+        let similar: Option<(Uuid, i32)> = sqlx::query_as(
+            "SELECT c.id,c.revision FROM cards c
+             JOIN card_versions v ON v.card_id=c.id AND v.version=c.current_version
+             WHERE c.owner_id=$1 AND c.status='active' AND v.russian=$2 AND v.english=$3
+             ORDER BY c.created_at DESC,c.id LIMIT 1",
+        )
+        .bind(owner)
+        .bind(&save.content.russian)
+        .bind(&save.content.english)
+        .fetch_optional(&mut *c)
+        .await?;
+        if let Some((id, revision)) = similar {
+            return Ok((id, "similar".into(), revision));
+        }
     }
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO cards(id,owner_id,fingerprint,original_source,model,prompt_version) VALUES($1,$2,$3,$4,$5,$6)").bind(id).bind(owner).bind(fp).bind(save.source).bind(save.model).bind(save.prompt_version).execute(&mut *c).await?;
