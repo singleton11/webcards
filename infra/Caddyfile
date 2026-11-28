@@ -21,7 +21,7 @@
 		file_server
 	}
 
-	@public path /icons/* /manifest.webmanifest /robots.txt
+	@public path /icons/* /manifest.webmanifest /robots.txt /reminder-worker.js
 	handle @public {
 		header /manifest.webmanifest Content-Type application/manifest+json
 		file_server

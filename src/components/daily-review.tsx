@@ -1,6 +1,7 @@
 "use client";
 import { Link } from "react-router";
 import { useCallback, useEffect, useState } from "react";
+import { EveningReminder } from "./evening-reminder";
 import type { ReviewCommand, Today } from "@/lib/review-contracts";
 
 async function request(command?: ReviewCommand): Promise<Today> {
@@ -76,6 +77,7 @@ export function DailyReview() {
           Recall it today, meet it again when it is due.
         </p>
       </section>
+      <EveningReminder />
       {error && (
         <div className="error-banner" role="alert">
           {error}{" "}

@@ -182,6 +182,7 @@ try {
     NODE_ENV: "test",
     PORT: String(apiPort),
     WEBCARDS_E2E_FIXTURE: "1",
+    WEBCARDS_VAPID_PRIVATE_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE",
     DATABASE_URL:
       "postgresql://webcards_test@127.0.0.1:" + dbPort + "/postgres",
     BETTER_AUTH_URL: origin,

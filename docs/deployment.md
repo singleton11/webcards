@@ -20,6 +20,18 @@ The personal deployment runs Caddy inside Docker with host networking. Its read-
 
 The active personal deployment still uses the static frontend and Node API; the Rust rewrite changes source and release templates only. Its service runs a versioned API release outside the source checkout, with the existing private configuration supplied through systemd. The checked-in Rust replacement is documented and validated separately in [Rust API migration](rust-api.md); it is not deployed. The previous Next.js build and its dependencies are retained in an independent rollback release. Host-specific paths and the rollback command are recorded in the ignored `.local/` directory, not in public configuration. Creating a build or editing this repository does not authorize changing services on another host. An explicitly approved Rust cutover should build and stage a versioned release directory, validate its static assets and API using isolated data, preserve Caddy's existing static mount and routing, restart/replace only the API unit, and verify HTTPS, login/logout, account isolation, static caching, deep links, reviews, and runtime memory. Retain the previous Node release bundle, dependency tree, Caddy configuration, and unit file for a prompt rollback; restore the earlier API unit if validation fails. Caddy does not need to restart for a backend-only replacement at the same loopback address. No database migration, reset, or manual data modification is needed; login/logout verification naturally reads the database and updates sessions. Do not change the auth/session secret or LiteLLM key during this cutover.
 
+## Evening reminders
+
+Evening reminders use the Rust API. Before enabling delivery, apply the `0004_evening_reminders` migration with `npm run db:migrate` as part of the approved release. Generate a persistent VAPID private key locally and store its output as `WEBCARDS_VAPID_PRIVATE_KEY` in the API's private environment file.
+
+```sh
+node --input-type=module -e 'import { generateKeyPairSync } from "node:crypto"; console.log(generateKeyPairSync("ec", { namedCurve: "prime256v1" }).privateKey.export({ format: "jwk" }).d)'
+```
+
+The browser receives the derived public key. Keep the same private key across releases because existing subscriptions are tied to it. The build host needs OpenSSL development headers, and the API runtime needs the compatible OpenSSL shared libraries. The API needs outbound HTTPS to the browser push services for Google, Mozilla, Apple, and Microsoft. With an empty key, delivery is disabled.
+
+On **Today**, open **Evening reminder**, choose a time, and allow notifications. The default is 7:00 p.m. in the device's time zone. On iPhone and iPad, open Webcards from the Home Screen to enable reminders. Use **Save time** to update the schedule after changing time zones, and **Turn off reminder** to disable delivery to that browser. The API attempts delivery once per day for each subscription and skips scheduled reminders that are over an hour late.
+
 ## Operations
 
 - API status: systemctl --user status webcards.service
@@ -27,4 +39,4 @@ The active personal deployment still uses the static frontend and Node API; the 
 - Static build output: dist/frontend/
 - Caddy's configuration and site routing are managed with the existing host Caddy deployment, not this systemd user service.
 
-Webcards remains online-only, with no service worker or offline data cache. Translation and non-exact quiz grading continue to send text to the configured LiteLLM upstream; its retention policy has not been verified. Keep sensitive text out until upstream handling is reviewed. Backup/restore, account export/deletion, and provider privacy/terms review remain out of scope for this change.
+Webcards remains online-only. The reminder service worker handles notifications and their clicks. The app has no offline data cache. Translation and non-exact quiz grading continue to send text to the configured LiteLLM upstream; its retention policy has not been verified. Keep sensitive text out until upstream handling is reviewed. Backup/restore, account export/deletion, and provider privacy/terms review remain out of scope for this change.

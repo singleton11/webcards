@@ -29,6 +29,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "json", "env-filter"] }
 uuid = { version = "1.19.0", features = ["v4", "serde"] }
 zeroize = { version = "1.8.2", features = ["derive"] }
+web-push = { version = "0.11.0", default-features = false }
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util"] }

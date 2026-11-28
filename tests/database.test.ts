@@ -144,6 +144,7 @@ describe("PostgreSQL authentication and ownership", () => {
       "0001_owner_foundations",
       "0002_vocabulary",
       "0003_daily_review",
+      "0004_evening_reminders",
     ]);
     for (const migration of applied.rows) {
       await getDb().query(
