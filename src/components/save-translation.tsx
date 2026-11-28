@@ -22,7 +22,7 @@ export function SaveTranslation({
   const saveId = useRef<string | null>(null);
   const undoId = useRef<string | null>(null);
   const sending = useRef(false);
-  async function act(undo = false) {
+  async function act(action: "save" | "keep" | "undo" = "save") {
     if (sending.current) return;
     sending.current = true;
     setBusy(true);
@@ -30,7 +30,7 @@ export function SaveTranslation({
     setMessage("");
     try {
       saveId.current ??= crypto.randomUUID();
-      if (undo && result) {
+      if (action === "undo" && result) {
         undoId.current ??= crypto.randomUUID();
         await cardRequest<CardResult>("/api/cards/" + result.cardId, {
           requestId: undoId.current,
@@ -49,9 +49,12 @@ export function SaveTranslation({
           source,
           model,
           promptVersion,
+          similarPolicy: action === "keep" ? "keep" : "review",
         });
-        if (saved.card) setResult(saved);
-        else {
+        if (saved.card) {
+          setResult(saved);
+          if (saved.outcome === "similar") saveId.current = null;
+        } else {
           setResult(null);
           saveId.current = null;
           setMessage("That save was already removed. You can add it again.");
@@ -70,7 +73,24 @@ export function SaveTranslation({
   }
   return (
     <div className="save-controls" aria-busy={busy}>
-      {result?.card ? (
+      {result?.card && result.outcome === "similar" ? (
+        <div className="similar-card">
+          <strong role="status">Similar card already saved</strong>
+          <p>{result.card.content.sense}</p>
+          {result.card.content.context && <p>{result.card.content.context}</p>}
+          <div className="saved-row">
+            <Link to={"/list/" + result.cardId}>View saved card</Link>
+            <button
+              type="button"
+              className="text-button"
+              disabled={busy}
+              onClick={() => void act("keep")}
+            >
+              {busy ? "Saving..." : "Keep both"}
+            </button>
+          </div>
+        </div>
+      ) : result?.card ? (
         <div className="saved-row">
           <span role="status">
             {result.card.status === "archived"
@@ -85,7 +105,7 @@ export function SaveTranslation({
               type="button"
               className="text-button"
               disabled={busy}
-              onClick={() => void act(true)}
+              onClick={() => void act("undo")}
             >
               {busy ? "Undoing..." : "Undo"}
             </button>

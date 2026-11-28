@@ -375,3 +375,28 @@ test("empty search and interrupted list loading give honest recoverable states",
     page.getByRole("heading", { name: "good morning", exact: true }),
   ).toBeVisible();
 });
+
+test("asks before saving the same translation with different context", async ({
+  page,
+}) => {
+  await translate(page);
+  await page.getByRole("button", { name: "Add to my list" }).click();
+  await expect(page.locator(".saved-row [role=status]")).toHaveText("Saved");
+  const first = await savedCard(page);
+
+  await translate(page, "доброе утро", "greeting a coworker");
+  await page.getByRole("button", { name: "Add to my list" }).click();
+  await expect(page.getByText("Similar card already saved")).toBeVisible();
+  await expect(
+    page.getByText("morning at home", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "View saved card" }),
+  ).toHaveAttribute("href", "/list/" + first.id);
+  expect((await savedCard(page)).id).toBe(first.id);
+
+  await page.getByRole("button", { name: "Keep both" }).click();
+  await expect(page.locator(".saved-row [role=status]")).toHaveText("Saved");
+  const { total } = await (await page.request.get("/api/cards")).json();
+  expect(total).toBe(2);
+});

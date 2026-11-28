@@ -220,6 +220,36 @@ describe("vocabulary persistence", () => {
         .cardId,
     ).not.toBe(first.cardId);
   });
+  it("reviews matching pairs within the account before saving a variant", async () => {
+    const first = await saveCard(getDb(), owner, input());
+    const candidate = {
+      ...input({ sense: "riverbank", english: "  bank  " }, "en"),
+      similarPolicy: "review" as const,
+    };
+    expect(await saveCard(getDb(), owner, candidate)).toMatchObject({
+      outcome: "similar",
+      cardId: first.cardId,
+    });
+    expect(await saveCard(getDb(), other, candidate)).toMatchObject({
+      outcome: "created",
+    });
+    expect(
+      (await listCards(getDb(), owner, cardQuerySchema.parse({}))).total,
+    ).toBe(1);
+
+    const confirmed = {
+      ...candidate,
+      requestId: crypto.randomUUID(),
+      similarPolicy: "keep" as const,
+    };
+    const second = await saveCard(getDb(), owner, confirmed);
+    expect(second.outcome).toBe("created");
+    expect(await saveCard(getDb(), owner, confirmed)).toEqual(second);
+    expect(await saveCard(getDb(), owner, candidate)).toMatchObject({
+      outcome: "duplicate",
+      cardId: second.cardId,
+    });
+  });
   it("replays durable receipts and rejects request ID reuse for a different payload", async () => {
     const save = input();
     const first = await saveCard(getDb(), owner, save);

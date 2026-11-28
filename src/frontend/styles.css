@@ -426,6 +426,19 @@ textarea:focus {
   text-decoration: underline;
   text-underline-offset: 4px;
 }
+.similar-card {
+  border-left: 2px solid var(--lime);
+  padding: 8px 12px 0;
+  overflow-wrap: anywhere;
+}
+.similar-card > strong {
+  color: var(--lime);
+  font-size: 13px;
+}
+.result-card .similar-card > p {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
 .result-card .save-error {
   color: #ffe2ce;
   border-left: 2px solid #ffd1a8;
