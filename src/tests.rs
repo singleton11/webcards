@@ -2,6 +2,7 @@ use super::*;
 use tower::ServiceExt;
 fn app() -> App {
     App {
+        push: None,
         db: PgPoolOptions::new()
             .connect_lazy("postgresql://fixture@127.0.0.1:1/unused")
             .unwrap(),

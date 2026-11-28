@@ -1,6 +1,7 @@
 mod auth;
 mod cards;
 mod model;
+mod reminders;
 mod reviews;
 pub mod scheduler;
 #[cfg(test)]
@@ -40,6 +41,7 @@ pub struct App {
     login_rate: Arc<Mutex<HashMap<String, (Instant, usize)>>>,
     password_slots: Arc<Semaphore>,
     fixture: bool,
+    push: Option<Arc<reminders::Push>>,
 }
 #[derive(Clone)]
 struct Config {
@@ -133,6 +135,7 @@ impl App {
             .map_err(|_| "Could not initialize the model HTTP client.")?;
         Ok(Self {
             db,
+            push: reminders::Push::from_env(&origin)?.map(Arc::new),
             origin,
             secure: origin_url.scheme() == "https",
             secret: Arc::new(Zeroizing::new(secret)),
@@ -159,6 +162,7 @@ impl App {
             .route("/api/cards", any(cards_route))
             .route("/api/cards/{id}", any(card_route))
             .route("/api/reviews", any(reviews_route))
+            .route("/api/reminders", any(reminders::route))
             .route("/api/translate", any(translate_route))
             .fallback(not_found)
             .layer(middleware::from_fn(security_headers))

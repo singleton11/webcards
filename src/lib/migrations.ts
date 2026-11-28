@@ -124,6 +124,21 @@ const migrations = [
       PRIMARY KEY(owner_id,day)
     );`,
   },
+  {
+    version: "0004_evening_reminders",
+    sql: `CREATE TABLE push_reminders (
+      device text PRIMARY KEY,
+      owner_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      subscription jsonb NOT NULL,
+      local_time time NOT NULL,
+      time_zone text NOT NULL,
+      next_at timestamptz NOT NULL,
+      last_attempt_at timestamptz,
+      revision uuid NOT NULL
+    );
+    CREATE INDEX push_reminders_owner ON push_reminders(owner_id);
+    CREATE INDEX push_reminders_schedule ON push_reminders(next_at);`,
+  },
 ];
 export async function migrateApplication(db: Pool) {
   const client = await db.connect();

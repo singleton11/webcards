@@ -114,6 +114,7 @@ describe("vocabulary persistence", () => {
       "0001_owner_foundations",
       "0002_vocabulary",
       "0003_daily_review",
+      "0004_evening_reminders",
     ]);
   });
   it("upgrades an existing owner foundation without changing credentials or preferences", async () => {

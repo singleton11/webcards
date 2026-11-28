@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createECDH, createHash } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
@@ -21,6 +22,7 @@ let origin: string;
 let owner: string;
 let calls = 0;
 const password = "isolated-password-1234";
+const expiredReminder = "0".repeat(64);
 const save = {
   requestId: "c1653094-ef84-4a1c-988f-ce2fd53a1353",
   source: "en" as const,
@@ -35,6 +37,8 @@ const save = {
   },
 };
 let cookie: string;
+const vapid = createECDH("prime256v1");
+vapid.generateKeys();
 let reviewed: { cardId: string; direction: string; itemId: string };
 async function request(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers);
@@ -103,10 +107,25 @@ beforeAll(async () => {
   owner = await createOwner(db, "owner", password);
   await createAccount(db, "second", password);
   await createAccount(db, "stress", password);
+  await db.query(
+    `INSERT INTO push_reminders (device, owner_id, subscription, local_time, time_zone, next_at, revision)
+     VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC' + interval '12 hours')::time,
+       'UTC', now() - interval '2 hours', $4)`,
+    [
+      expiredReminder,
+      owner,
+      { endpoint: "https://example.invalid/push", keys: { p256dh: "", auth: "" } },
+      crypto.randomUUID(),
+    ],
+  );
   const apiPort = await freePort();
   endpoint = `http://127.0.0.1:${apiPort}`;
   api = spawn("./dist/webcards-api", [], {
-    env: { ...process.env, PORT: String(apiPort) },
+    env: {
+      ...process.env,
+      PORT: String(apiPort),
+      WEBCARDS_VAPID_PRIVATE_KEY: Buffer.from(vapid.getPrivateKey("hex").padStart(64, "0"), "hex").toString("base64url"),
+    },
     stdio: "pipe",
   });
   for (let i = 0; i < 100; i++) {
@@ -164,6 +183,116 @@ describe.sequential(
           )
         ).status,
       ).toBe(404);
+    });
+    it("stores an evening reminder for the signed-in account and supports idempotent removal", async () => {
+      const browser = createECDH("prime256v1");
+      browser.generateKeys();
+      const pushEndpoint =
+        "https://fcm.googleapis.com/fcm/send/test-subscription";
+      const id = createHash("sha256").update(pushEndpoint).digest("hex");
+      const path = "/api/reminders?device=" + id;
+      const command = {
+        action: "enable",
+        time: "19:00",
+        timeZone: "America/New_York",
+        subscription: {
+          endpoint: pushEndpoint,
+          keys: {
+            p256dh: browser.getPublicKey().toString("base64url"),
+            auth: Buffer.alloc(16, 1).toString("base64url"),
+          },
+        },
+      };
+      expect(await (await request(path)).json()).toEqual({
+        publicKey: vapid.getPublicKey().toString("base64url"),
+        reminder: null,
+      });
+      expect((await fetch(endpoint + path)).status).toBe(401);
+      expect(
+        (
+          await fetch(endpoint + path, {
+            ...post(command),
+            headers: {
+              cookie,
+              origin: "https://untrusted.example",
+              "content-type": "application/json",
+            },
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await request(path, post({ ...command, timeZone: "Invalid/Zone" })))
+          .status,
+      ).toBe(400);
+      expect(
+        (
+          await request(
+            path,
+            post({
+              ...command,
+              subscription: {
+                ...command.subscription,
+                endpoint: "https://127.0.0.1/push",
+              },
+            }),
+          )
+        ).status,
+      ).toBe(400);
+      expect((await request(path, post(command))).status).toBe(200);
+      expect((await request(path, post(command))).status).toBe(200);
+      expect(await (await request(path)).json()).toMatchObject({
+        reminder: { time: "19:00", timeZone: "America/New_York" },
+      });
+      const stored = await getDb().query(
+        "SELECT next_at > now() AS future, to_char(next_at AT TIME ZONE time_zone, 'HH24:MI') AS scheduled FROM push_reminders WHERE device=$1",
+        [id],
+      );
+      expect(stored.rows).toEqual([{ future: true, scheduled: "19:00" }]);
+      const original = cookie;
+      try {
+        const login = await nodeRequest(
+          "/api/auth/sign-in/username",
+          post({ username: "second", password }),
+        );
+        cookie = login.headers.get("set-cookie")!.split(";")[0];
+        expect(await (await request(path)).json()).toMatchObject({
+          reminder: null,
+        });
+        expect((await request(path, post(command))).status).toBe(409);
+        expect((await request(path, post({ action: "disable" }))).status).toBe(
+          200,
+        );
+      } finally {
+        cookie = original;
+      }
+      expect(await (await request(path)).json()).toMatchObject({
+        reminder: { time: "19:00" },
+      });
+      expect((await request(path, post({ action: "disable" }))).status).toBe(200);
+      expect((await request(path, post({ action: "disable" }))).status).toBe(200);
+      expect(await (await request(path)).json()).toMatchObject({
+        reminder: null,
+      });
+    });
+    it("advances an expired reminder on startup without attempting delivery", async () => {
+      const db = getDb();
+      await expect
+        .poll(
+          async () => {
+            const result = await db.query(
+              `SELECT next_at BETWEEN now()+interval '11 hours' AND now()+interval '13 hours' AS advanced,
+                    last_attempt_at IS NULL AS skipped
+             FROM push_reminders WHERE device=$1`,
+              [expiredReminder],
+            );
+            return result.rows[0];
+          },
+          { timeout: 5000 },
+        )
+        .toEqual({ advanced: true, skipped: true });
+      await db.query("DELETE FROM push_reminders WHERE device=$1", [
+        expiredReminder,
+      ]);
     });
     it("matches Node's active-card total independently of due dates, archives and other accounts", async () => {
       const db = getDb();
